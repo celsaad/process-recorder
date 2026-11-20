@@ -15,6 +15,29 @@ export function isAcceptedType(mimeType: string): mimeType is AcceptedType {
   return (ACCEPTED_TYPES as readonly string[]).includes(mimeType);
 }
 
+const TYPE_BY_EXTENSION: Record<(typeof ACCEPTED_EXTENSIONS)[number], AcceptedType> = {
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
+};
+
+/** MIME type for an accepted extension (case-insensitive), or null. */
+export function inferVideoType(fileName: string): AcceptedType | null {
+  const dot = fileName.lastIndexOf(".");
+  if (dot < 0) return null;
+  const ext = fileName.slice(dot).toLowerCase() as keyof typeof TYPE_BY_EXTENSION;
+  return TYPE_BY_EXTENSION[ext] ?? null;
+}
+
+/** Some OSes (notably Windows for .mov) report an empty `File.type`. The server
+ *  checks Content-Type, so give such files a type from their extension at the point
+ *  they enter the app; the stored copy then re-uploads correctly too (file_expired). */
+export function withVideoType(file: File): File {
+  if (file.type) return file;
+  const type = inferVideoType(file.name);
+  return type ? new File([file], file.name, { type, lastModified: file.lastModified }) : file;
+}
+
 export function isLongVideo(sec: number): boolean {
   return sec > SOFT_DURATION_SEC;
 }

@@ -8,7 +8,7 @@ import { AppError, ERROR_COPY, serialize, toAppError } from "@/lib/errors";
 import { buildDocx, downloadBlob, exportFilename } from "@/lib/export-docx";
 import { createFrameGrabber, probeVideo, validateFile, type FrameGrabber } from "@/lib/frames";
 import { initialJob, jobReducer } from "@/lib/job-machine";
-import { isLongVideo } from "@/lib/limits";
+import { isLongVideo, withVideoType } from "@/lib/limits";
 import {
   clearAll,
   createDebouncedSaver,
@@ -370,7 +370,8 @@ export function useProcessRecorder(): Recorder {
         let source: Source;
         let from: RetryFrom;
         if ("file" in start) {
-          const { file } = start;
+          // Give type-less files (e.g. .mov on Windows) a MIME type before anything else sees them.
+          const file = withVideoType(start.file);
           // In-memory draft so JobProgress has the video info (from the File while validating,
           // then the probe's); persisted only after analysis.
           const draft = (video: VideoInfo): Project => ({

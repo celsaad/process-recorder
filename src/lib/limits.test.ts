@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAcceptedType, isLongVideo, MAX_BYTES, MAX_DURATION_SEC, SOFT_DURATION_SEC } from "./limits";
+import { inferVideoType, isAcceptedType, isLongVideo, MAX_BYTES, MAX_DURATION_SEC, SOFT_DURATION_SEC, withVideoType } from "./limits";
 
 describe("limits", () => {
   it("matches D16", () => {
@@ -17,5 +17,32 @@ describe("limits", () => {
     expect(isAcceptedType("video/quicktime")).toBe(true);
     expect(isAcceptedType("video/webm")).toBe(true);
     expect(isAcceptedType("application/pdf")).toBe(false);
+  });
+});
+
+describe("inferVideoType / withVideoType (empty File.type, e.g. .mov on Windows)", () => {
+  it("maps accepted extensions case-insensitively", () => {
+    expect(inferVideoType("demo.MOV")).toBe("video/quicktime");
+    expect(inferVideoType("a.b.mp4")).toBe("video/mp4");
+    expect(inferVideoType("clip.webm")).toBe("video/webm");
+    expect(inferVideoType("notes.pdf")).toBeNull();
+    expect(inferVideoType("noextension")).toBeNull();
+  });
+
+  it("fills in a missing type and keeps name, size and content", async () => {
+    const original = new File(["abc"], "Recording.mov", { type: "", lastModified: 123 });
+    const typed = withVideoType(original);
+    expect(typed.type).toBe("video/quicktime");
+    expect(typed.name).toBe("Recording.mov");
+    expect(typed.size).toBe(3);
+    expect(typed.lastModified).toBe(123);
+    expect(await typed.text()).toBe("abc");
+  });
+
+  it("leaves files that already have a type, or an unknown extension, untouched", () => {
+    const mp4 = new File(["x"], "a.mp4", { type: "video/mp4" });
+    expect(withVideoType(mp4)).toBe(mp4);
+    const pdf = new File(["x"], "a.pdf", { type: "" });
+    expect(withVideoType(pdf)).toBe(pdf);
   });
 });
