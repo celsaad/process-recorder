@@ -13,8 +13,10 @@ test("edits and screenshots survive a reload; Start new clears them", async ({ p
     timeout: 30_000,
   });
 
+  // Edits are debounced (500 ms): wait for Saving, then Saved, so the reload can't race the write.
   const edited = "Persisted edit from the E2E test";
   await page.getByLabel("Action").first().fill(edited);
+  await expect(page.getByText(/saving/i)).toBeVisible();
   await expect(page.getByText(/^saved$/i)).toBeVisible();
 
   await page.reload();
@@ -24,9 +26,10 @@ test("edits and screenshots survive a reload; Start new clears them", async ({ p
     timeout: 30_000,
   });
 
+  // "Start new" asks for confirmation in an alert dialog.
   await page.getByRole("button", { name: /start new/i }).click();
   await page
-    .getByRole("dialog")
+    .getByRole("alertdialog")
     .getByRole("button", { name: /start new|confirm|continue|yes/i })
     .click();
   await expect(dropzone).toBeVisible();

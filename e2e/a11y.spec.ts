@@ -28,7 +28,7 @@ test.describe("axe scans (WCAG 2.2 AA)", () => {
     });
     await expectNoAxeViolations(page);
 
-    await page.getByRole("button", { name: /pick frame for step 1\b/i }).click();
+    await page.getByRole("button", { name: /^pick frame for step 1\b/i }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await expectNoAxeViolations(page);
   });

@@ -1,13 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { NOT_A_VIDEO, uploadSample, useScenario } from "./helpers";
-
-function trackUploads(page: Page): string[] {
-  const uploads: string[] = [];
-  page.on("request", (r) => {
-    if (r.url().includes("/api/upload")) uploads.push(r.url());
-  });
-  return uploads;
-}
+import { expect, test } from "@playwright/test";
+import { NOT_A_VIDEO, trackUploads, uploadSample, useScenario } from "./helpers";
 
 test("a PDF is rejected as unsupported_type before any upload", async ({ page }) => {
   const uploads = trackUploads(page);
@@ -34,7 +26,7 @@ test("rate_limited: Retry re-runs analysis without a second upload", async ({ pa
   expect(uploads).toHaveLength(1);
 
   const analyzeRequest = page.waitForRequest((r) => r.url().includes("/api/analyze"));
-  await page.getByRole("button", { name: /retry/i }).click();
+  await page.getByRole("button", { name: /retry|try again/i }).click();
   await analyzeRequest;
   expect(uploads).toHaveLength(1);
 });
