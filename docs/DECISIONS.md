@@ -94,6 +94,13 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 **Why stream to a temp file.** `request.blob()` would hold up to a few hundred MB in memory per request. Piping to `os.tmpdir()` keeps memory flat. The file is deleted in `finally`. *To verify in the spike:* piping `request.body` to disk in a Next 16 route handler, and `request.signal` firing when the client disconnects.
 
+**Spike results (Lane A, 2026-11-20; verified, no longer to-dos).**
+- Piping `request.body` to a temp file works in a Next 16 route handler, and NDJSON stage events reach the client incrementally.
+- `request.signal` fires on client disconnect: polling stops and the temp file is deleted.
+- Timings: the 76 MB Retina `.mov` uploaded to Gemini in 9.9 s and was `ACTIVE` at 29.6 s. A 3 MB MP4 took about 29 s end to end through the route.
+- Gemini returns **403, not 404**, for an expired or unknown file, so 403 on `files.get` maps to `file_expired`.
+- With no key, the SDK fails late with a vague credentials error, so the server checks `GEMINI_API_KEY` itself first and returns `missing_api_key`.
+
 **Server-side limits.** The client checks everything first, but client checks can be bypassed. The server rejects bodies over **500 MB** (the Files API allows 2 GB) or with a non-video `Content-Type`. The `PROCESSING` poll times out after 2 minutes.
 
 **Cancellation.** The client aborts with `AbortController`. Server handlers pass `request.signal` to the polling loop and SDK calls. This stops *our waiting*. A `generateContent` call already in flight may still be billed.
@@ -133,6 +140,8 @@ The OpenAPI subset has no tuples, so `box_2d` is a plain integer array. zod acce
 **Timestamps.** `MM:SS` only. Gemini samples video at 1 fps by default, so `MM:SS.s` would be false precision. `parseTimestamp` is a pure, unit-tested function that clamps to `[0, duration]`.
 
 **Model.** Configurable via `GEMINI_MODEL`, default **`gemini-3.8-flash`**. It is the newest non-preview Flash available to the provided key (checked with `models.list` on 2026-11-20). The first spike confirms that it handles video and structured output and accepts `video/quicktime`. `gemini-2.5-flash` is the known-good fallback. We set a **low thinking level** for latency, because this task is extraction rather than reasoning.
+
+**Spike result.** `gemini-3.8-flash` accepts video, `video/quicktime` and the response schema. Analysis of the 76 MB `.mov` took 34.6 s. `gemini-2.5-flash` wasn't needed (its thinking-budget path is coded but not run against the real API).
 
 **Not tuning sampling.** We keep the default 1 fps. Higher fps multiplies tokens and can hit free-tier tokens-per-minute limits. If steps are missed, re-picking and adding steps cover the gap.
 
