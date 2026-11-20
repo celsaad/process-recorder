@@ -120,6 +120,7 @@ export default function Home() {
           durationSec={editor.video.durationSec}
           initialSec={pickStep?.timestampSec ?? 0}
           stepNumber={pickIndex + 1}
+          stepAction={pickStep?.action || undefined}
           onConfirm={async (sec, shot) => {
             if (pickStep) await r.repick(pickStep.id, sec, shot);
             setPickingId(null);

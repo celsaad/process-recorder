@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureProject } from "@/fixtures/project";
 import type { JobState, Recorder } from "@/lib/types";
@@ -7,8 +7,11 @@ import type { JobState, Recorder } from "@/lib/types";
 // Each child component is another lane's; stand them in with markers that expose their props.
 // ReactNode slot props (`title`, `actions`) render in a `data-slot` wrapper.
 const SLOTS = ["title", "actions"] as const;
+/** Last raw props per marker (including callbacks, which data-props can't carry). */
+const lastProps = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 const marker = (name: string) =>
   function Marker(props: Record<string, unknown>) {
+    lastProps.set(name, props);
     const data = Object.fromEntries(
       Object.entries(props).filter(([, v]) => ["string", "number", "boolean"].includes(typeof v)),
     );
@@ -137,6 +140,14 @@ describe("Home page", () => {
     expect(shown("StepList")).toBe(true);
     expect(shown("CaptureBanner")).toBe(false);
     expect(props("FramePicker")).toMatchObject({ open: false, videoUrl: "blob:video" });
+  });
+
+  it("opening the frame picker passes the step's number and action (subtitle)", () => {
+    rec.current = recorder({ phase: "ready" });
+    render(<Home />);
+    const second = fixtureProject.steps[1];
+    act(() => (lastProps.get("StepList")!.onPickFrame as (id: string) => void)(second.id));
+    expect(props("FramePicker")).toMatchObject({ open: true, stepNumber: 2, stepAction: second.action });
   });
 
   it("ready with zero steps → NoSteps", () => {
