@@ -14,11 +14,35 @@ const backend = vi.hoisted(() => ({
   deleteFile: vi.fn(),
 }));
 const geminiFor = vi.hoisted(() => vi.fn());
+/** Test seam: the upload cap the route sees (the real 500 MB unless a test lowers it). */
+const cap = vi.hoisted(() => ({ maxBytes: undefined as number | undefined }));
+/** Every temp path the route asked for, so tests can check it was deleted. */
+const tempPaths = vi.hoisted((): string[] => []);
 
 vi.mock("@/server/gemini", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/gemini")>()),
   geminiFor,
 }));
+vi.mock("@/lib/limits", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/limits")>();
+  return {
+    ...actual,
+    get MAX_BYTES() {
+      return cap.maxBytes ?? actual.MAX_BYTES;
+    },
+  };
+});
+vi.mock("@/server/temp-file", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/temp-file")>();
+  return {
+    ...actual,
+    tempPathFor: (mimeType: string) => {
+      const path = actual.tempPathFor(mimeType);
+      tempPaths.push(path);
+      return path;
+    },
+  };
+});
 
 const { POST: upload } = await import("./upload/route");
 const { POST: analyze } = await import("./analyze/route");
@@ -47,6 +71,8 @@ const analyzeRequest = (body: unknown) =>
   });
 
 beforeEach(() => {
+  cap.maxBytes = undefined;
+  tempPaths.length = 0;
   Object.values(backend).forEach((f) => f.mockReset());
   geminiFor.mockReset().mockReturnValue(backend satisfies GeminiBackend);
 });
@@ -133,6 +159,72 @@ describe("POST /api/upload", () => {
     });
     const res = await upload(req);
     expect(ndjson(await res.text()).at(-1)).toEqual({ type: "error", error: { kind: "cancelled" } });
+    expect(tempPaths).toHaveLength(1);
+    expect(existsSync(tempPaths[0])).toBe(false);
+  });
+
+  it("deletes the partly written temp file when the client cancels while the body streams in", async () => {
+    const controller = new AbortController();
+    const encoder = new TextEncoder();
+    let pulls = 0;
+    // A body that never ends: the client aborts after a few chunks have reached the disk.
+    const body = new ReadableStream<Uint8Array>({
+      async pull(c) {
+        if (++pulls === 3) controller.abort();
+        await new Promise((r) => setTimeout(r, 5));
+        c.enqueue(encoder.encode("chunk "));
+      },
+    });
+    const req = new Request("http://localhost/api/upload", {
+      method: "POST",
+      body,
+      duplex: "half",
+      headers: { "content-type": "video/mp4" },
+      signal: controller.signal,
+    } as RequestInit);
+    const res = await upload(req);
+    expect(ndjson(await res.text()).at(-1)).toEqual({ type: "error", error: { kind: "cancelled" } });
+    expect(backend.uploadAndWait).not.toHaveBeenCalled();
+    expect(tempPaths).toHaveLength(1);
+    expect(existsSync(tempPaths[0])).toBe(false);
+  });
+
+  it("rejects a chunked body with no Content-Length once it passes the cap (too_large)", async () => {
+    cap.maxBytes = 1024;
+    const chunk = new Uint8Array(400);
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        c.enqueue(chunk); // unbounded: only the cap stops it
+      },
+    });
+    const req = new Request("http://localhost/api/upload", {
+      method: "POST",
+      body,
+      duplex: "half",
+      headers: { "content-type": "video/mp4" },
+    } as RequestInit);
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await upload(req);
+    // Streaming has started, so the status is already 200; the body carries the error (D4).
+    expect(res.headers.get("content-type")).toMatch(/^application\/x-ndjson/);
+    expect(ndjson(await res.text())).toEqual([
+      { type: "stage", stage: "received" },
+      { type: "error", error: { kind: "too_large", detail: "1.2 KB" } },
+    ]);
+    expect(backend.uploadAndWait).not.toHaveBeenCalled();
+    expect(tempPaths).toHaveLength(1);
+    expect(existsSync(tempPaths[0])).toBe(false);
+  });
+
+  it("returns undecodable for a 0-byte body, without calling Gemini, and deletes the temp file", async () => {
+    const res = await upload(uploadRequest(""));
+    expect(ndjson(await res.text())).toEqual([
+      { type: "stage", stage: "received" },
+      { type: "error", error: { kind: "undecodable" } },
+    ]);
+    expect(backend.uploadAndWait).not.toHaveBeenCalled();
+    expect(tempPaths).toHaveLength(1);
+    expect(existsSync(tempPaths[0])).toBe(false);
   });
 });
 

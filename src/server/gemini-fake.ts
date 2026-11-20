@@ -37,8 +37,16 @@ export const FAKE_RESPONSE: GeminiResponse = GeminiResponseSchema.parse({
 export const FAKE_REJECTION_REASON =
   "The video shows a person talking to the camera, not a computer screen.";
 
+let warned = false;
+
+/** True when GEMINI_FAKE=1. Warns once per process, so a leftover flag shows up in the logs. */
 export function isFakeMode(): boolean {
-  return process.env.GEMINI_FAKE === "1";
+  const fake = process.env.GEMINI_FAKE === "1";
+  if (fake && !warned) {
+    warned = true;
+    console.warn("[process-recorder] GEMINI_FAKE=1: serving the fake Gemini backend, no real analysis.");
+  }
+  return fake;
 }
 
 function isScenario(value: string): value is FakeScenario {

@@ -41,7 +41,9 @@ export async function POST(request: Request): Promise<Response> {
       const path = tempPathFor(mimeType);
       try {
         send({ type: "stage", stage: "received" });
-        await writeBodyToFile(body, path, MAX_BYTES, abort.signal);
+        const bytes = await writeBodyToFile(body, path, MAX_BYTES, abort.signal);
+        // Defence in depth (the client probe catches this first): nothing to send to Gemini.
+        if (bytes === 0) throw new AppError("undecodable");
         send({ type: "stage", stage: "sending_to_gemini" });
         const file = await gemini.uploadAndWait(path, mimeType, abort.signal, (stage) =>
           send({ type: "stage", stage }),
