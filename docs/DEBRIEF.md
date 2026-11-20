@@ -91,6 +91,7 @@ From [D15](DECISIONS.md#d15-scope-cuts-deliberate): Markdown/print export, drag 
 - Exporting while screenshots were still capturing produced "No screenshot" cells. Export now waits for capture.
 - Gemini returns **403, not 404**, for an expired file.
 - Axe flagged contrast on a dialog *mid fade-in*. The scan now waits for finite animations.
+- Capturing the docs screenshots found a lost click: with a highlight focused, its keyboard hint collapsed on blur and shifted the cards mid-click, so "Pick frame" on the next step did nothing. The hint now keeps its space and only fades (regression test in `e2e/regressions.spec.ts`).
 
 **If I had another hour**
 - Keep: everything in the editor and the error taxonomy. Those are what a consultant touches all day.
