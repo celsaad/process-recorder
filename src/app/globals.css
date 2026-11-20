@@ -46,13 +46,42 @@
   --color-info-border: var(--info-border);
   --color-danger-bg: var(--danger-bg);
   --color-control-border: var(--control-border);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-foreground-2: var(--foreground-2);
+  --color-primary-hover: var(--primary-hover);
+  --color-spinner-track: var(--spinner-track);
+  --color-warning-border: var(--warning-border);
+  --color-skeleton: var(--skeleton);
+  --color-skeleton-spinner-track: var(--skeleton-spinner-track);
+  --color-divider-soft: var(--divider-soft);
+  --color-backdrop: var(--backdrop);
+  --color-disabled: var(--disabled);
+  --color-disabled-border: var(--disabled-border);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-toast: var(--toast);
+  --color-toast-foreground: var(--toast-foreground);
+  /* Radii: 4 / 8 / 12 (canvas). `rounded-sm` 4, `rounded-lg` 8 (controls), `rounded-xl` 12 (cards). */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+  --radius-4xl: 24px;
+  /* Type scale: 12 / 13 / 14 / 16 / 20 / 24 / 30 (canvas). 13 px is `text-meta`. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.125rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.375rem;
 }
 
 :root {
@@ -82,12 +111,27 @@
   --info-border: #1D5BD6;
   --danger-bg: #FDECEA;
   --control-border: #7C8594;
+  /* Canvas tokens note ("Tokens beyond the core palette"). */
+  --foreground-2: #454E5B;        /* text-2: secondary body text */
+  --primary-hover: #15409A;       /* accent-hover */
+  --spinner-track: #C9D8F6;
+  --warning-border: #B7791F;
+  --skeleton: #E4E7EC;
+  --skeleton-spinner-track: #C4CAD3;
+  --divider-soft: #ECEEF2;
+  --backdrop: rgba(21, 24, 28, 0.62);
+  --disabled: #F5F6F8;
+  --disabled-border: #DADEE4;
+  --disabled-foreground: #7C8594;
+  --toast: #15181C;               /* export-failed toast (StatesEditor) */
+  --toast-foreground: #FFFFFF;
+  --focus-ring-outer: #FFFFFF;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  --radius: 0.75rem; /* sonner's toast radius; component radii are set in @theme */
   --sidebar: #FFFFFF;
   --sidebar-foreground: #15181C;
   --sidebar-primary: #1D5BD6;
@@ -137,6 +181,20 @@
   --info-border: #6E9BF0;
   --danger-bg: #3A1512;
   --control-border: #8A93A0;
+  --foreground-2: #B6BDC7;
+  --primary-hover: #8FB3F5;
+  --spinner-track: #2A3F6B;
+  --warning-border: #D9A441;
+  --skeleton: #2A2F36;
+  --skeleton-spinner-track: #4A515B;
+  --divider-soft: #2A2F36;
+  --backdrop: rgba(0, 0, 0, 0.7);
+  --disabled: #1F2329;
+  --disabled-border: #353B44;
+  --disabled-foreground: #8A93A0;
+  --toast: #F5F6F8;
+  --toast-foreground: #15181C;
+  --focus-ring-outer: #15181C;
 }
 
 @layer base {
@@ -151,24 +209,40 @@
   }
 }
 
-/* Two-tone focus ring (visible on any background). Base default + opt-in utility. */
-@layer base {
-  :focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
-    box-shadow: 0 0 0 4px #FFFFFF;
-  }
+/* Two-tone focus ring (D13): 2 px blue against the element, 2 px white outside it, so it
+   reads on white, grey, dark toasts and dark screenshot content alike.
+   Deliberately NOT in a cascade layer: unlayered rules beat Tailwind's `utilities` layer,
+   so the shadcn primitives' single translucent `focus-visible:ring-*` can't replace it. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring-outer);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--ring);
 }
 
 @utility focus-ring {
   &:focus-visible {
-    outline: 2px solid var(--ring);
+    outline: 2px solid var(--focus-ring-outer);
     outline-offset: 2px;
-    box-shadow: 0 0 0 4px #FFFFFF;
+    box-shadow: 0 0 0 2px var(--ring);
   }
 }
 
+/* Indeterminate progress bar (JobProgress). No fake percentage (D4). */
+@keyframes pr-slide {
+  0% { left: -35%; }
+  100% { left: 100%; }
+}
+.pr-indeterminate {
+  animation: pr-slide 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .pr-indeterminate {
+    left: 0;
+    width: 100%;
+    opacity: 0.45;
+  }
+
   *,
   *::before,
   *::after {
