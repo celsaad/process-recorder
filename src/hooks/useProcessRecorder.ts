@@ -6,6 +6,7 @@ import { useAnnounce } from "@/components/shell/LiveRegion";
 import { analyzeVideo, deleteGeminiFile, uploadVideo } from "@/lib/api-client";
 import { AppError, ERROR_COPY, serialize, toAppError } from "@/lib/errors";
 import { buildDocx, downloadBlob, exportFilename } from "@/lib/export-docx";
+import type { ExportTemplate } from "@/lib/export-template";
 import { createFrameGrabber, probeVideo, validateFile, type FrameGrabber } from "@/lib/frames";
 import { initialJob, jobReducer } from "@/lib/job-machine";
 import { isLongVideo, withVideoType } from "@/lib/limits";
@@ -655,14 +656,14 @@ export function useProcessRecorder(): Recorder {
     [stepsRef, stepsDispatch, captureInto],
   );
 
-  const exportDocx = useCallback(async () => {
+  const exportDocx = useCallback(async (template?: ExportTemplate) => {
     // If screenshots are still being captured, finish them first (the button shows "Exporting…").
     if (captureDoneRef.current) await captureDoneRef.current;
     const meta = projectRef.current;
     if (!meta) return;
     const current = stepsRef.current.steps;
     const getShot = async (id: string) => shotBlobsRef.current.get(id) ?? (await loadShot(id).catch(() => null));
-    const blob = await buildDocx({ ...meta, steps: current }, current, getShot);
+    const blob = await buildDocx({ ...meta, steps: current }, current, getShot, template);
     downloadBlob(blob, exportFilename(meta.title));
   }, [stepsRef]);
 

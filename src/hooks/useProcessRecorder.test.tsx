@@ -389,8 +389,13 @@ describe("useProcessRecorder", () => {
       expect.objectContaining({ title: fixtureProject.title }),
       result.current.steps.steps,
       expect.any(Function),
+      undefined,
     );
     expect(exportDocx.downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "create-a-purchase-order.docx");
+    // An export template is passed through to buildDocx.
+    const template = { columns: [{ id: "pf", kind: "blank" as const, header: "Pass/Fail", visible: true }] };
+    await act(() => result.current.exportDocx(template));
+    expect(vi.mocked(exportDocx.buildDocx).mock.lastCall?.[3]).toBe(template);
   });
 
   it("exportDocx clicked mid-capture waits for every screenshot before building the document", async () => {
