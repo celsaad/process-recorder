@@ -45,6 +45,7 @@ There are deliberately **no custom shortcuts inside step cards**. The fields are
 | Frame picker | `Enter` on the slider / `Esc` | Use this frame / cancel (focus returns to the trigger). `Enter` on a ± button only steps |
 | Highlight (focused, in the card) | Arrows / `Shift` + arrows / `Alt` + arrows / `Delete` | Move / move 10× / resize / remove. Instructions are read via `aria-describedby` |
 | Project title | `Enter` / `Esc` (after "Rename") | Save / cancel the new title |
+| Export options (dialog) | `Tab` | Preset select → per column: Show checkbox → Header input → Move up → Move down → Remove (blank columns) → Add blank column → Save as preset → Done. `Esc` closes; focus returns to "Export options". After Remove, focus goes to the next column (the previous one if it was last) |
 
 ## Accessibility checklist (target WCAG 2.2 AA; verify with a keyboard walkthrough + axe, record gaps)
 

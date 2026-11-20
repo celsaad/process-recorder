@@ -285,7 +285,7 @@ Each lane: one agent, `isolation: "worktree"`. The list order within each lane i
    - `captureFromVideo(video) → Blob`.
 2. `image.ts`: `encodeFrame(canvas) → Blob` (WebP 0.9, ≤1920 px wide, check `blob.type`, JPEG fallback), `renderForExport(shot, highlight) → {bytes, width, height}` (JPEG 0.92, highlight burned in).
 3. `frames/FramePicker.tsx`: Radix Dialog, visible `<video>` (preview capped at `max-height: 50vh`), Radix slider (Shift = larger steps; the original-timestamp marker offset for the thumb inset), hint "← → step · Shift for 1 s · Enter to use · Esc to cancel", ±0.1 s/±1 s buttons, the latest seek wins, the original timestamp marked, Enter/Esc, focus returns to the trigger. Confirm → `onConfirm(sec, await captureFromVideo(video))`.
-4. `export-docx.ts`: `buildDocx(project, steps, getShot) → Blob` (landscape, title, 5-column table), `downloadBlob(blob, filename)`, `exportFilename(title)` → `"create-a-purchase-order.docx"`.
+4. `export-docx.ts`: `buildDocx(project, steps, getShot, template = DEFAULT_TEMPLATE) → Blob` (landscape, title, the template's visible columns; default 5 columns, see D17), `downloadBlob(blob, filename)`, `exportFilename(title)` → `"create-a-purchase-order.docx"`.
 5. `/dev/media`: pick a file → probe → capture at 3 timestamps → open the FramePicker → export the fixture project. Also record the lossless vs lossy WebP sizes (D3) if time allows.
 
 **Tests:** the pure parts (scaling, filename, `Infinity` branch with a mocked element).
