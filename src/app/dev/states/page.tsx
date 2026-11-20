@@ -79,10 +79,12 @@ export default function DevStatesPage() {
       </Sheet>
       {(["saved", "saving", "error", "idle"] as SaveStatus[]).map((s) => (
         <Sheet key={s} title={`AppHeader: editor, save status "${s}"`}>
-          <AppHeader saveStatus={s} onStartNew={noop}>
-            <ProjectTitle value={title} onChange={setTitle} />
-            <ExportButton onExport={() => wait(1500)} />
-          </AppHeader>
+          <AppHeader
+            saveStatus={s}
+            onStartNew={noop}
+            title={<ProjectTitle value={title} onChange={setTitle} />}
+            actions={<ExportButton onExport={() => wait(1500)} />}
+          />
         </Sheet>
       ))}
       <Sheet title="ExportButton: exporting (never finishes)">

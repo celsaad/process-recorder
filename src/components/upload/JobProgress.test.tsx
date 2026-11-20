@@ -52,6 +52,16 @@ describe("JobProgress", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("validating: no duration while it's still 0 (the probe hasn't finished)", () => {
+    const job = running({ stage: "validating", completed: [] });
+    const { rerender } = render(ui(job, { ...video, durationSec: 0 }));
+    expect(screen.getByRole("heading", { name: "Checking your recording" })).toBeInTheDocument();
+    expect(screen.getByText(/^3 MB$/)).toBeInTheDocument();
+    expect(screen.queryByText(/0:00/)).toBeNull();
+    rerender(ui(job, video));
+    expect(screen.getByText("3 MB · 1:18")).toBeInTheDocument();
+  });
+
   it("Cancel calls onCancel", async () => {
     const onCancel = vi.fn();
     render(ui(running(), video, onCancel));

@@ -66,6 +66,15 @@ export default function Home() {
     content = <JobProgress job={job} video={project.video} onCancel={r.cancel} />;
   } else if (job.phase === "error") {
     const copy = ERROR_COPY[job.error.kind];
+    const hint = copy.hint;
+    // Only pass children when there is something to show: ErrorPanel renders a detail area for any.
+    const detail =
+      job.retryFrom === "analyze" || hint ? (
+        <>
+          {job.retryFrom === "analyze" && <p>Your video is already uploaded. Retry won&apos;t upload it again.</p>}
+          {hint && <p>{hint}</p>}
+        </>
+      ) : undefined;
     const onPrimary =
       copy.primaryAction === "retry"
         ? r.retry
@@ -80,7 +89,7 @@ export default function Home() {
         onPrimary={onPrimary}
         onSecondary={copy.primaryAction === "retry" ? chooseFile : undefined}
       >
-        {job.retryFrom === "analyze" && <p>Your video is already uploaded. Retry won&apos;t upload it again.</p>}
+        {detail}
       </ErrorPanel>
     );
   } else {
@@ -89,11 +98,12 @@ export default function Home() {
 
   return (
     <>
-      <AppHeader saveStatus={r.saveStatus} onStartNew={editor ? r.startNew : undefined}>
-        {/* Separate children: AppHeader lays out the first as the title, the rest as actions. */}
-        {editor && <ProjectTitle value={editor.title} onChange={r.setTitle} />}
-        {editor && <ExportButton onExport={r.exportDocx} />}
-      </AppHeader>
+      <AppHeader
+        saveStatus={r.saveStatus}
+        onStartNew={editor ? r.startNew : undefined}
+        title={editor ? <ProjectTitle value={editor.title} onChange={r.setTitle} /> : undefined}
+        actions={editor ? <ExportButton onExport={r.exportDocx} /> : undefined}
+      />
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6 sm:px-8">
         {r.storageFull && (
           <Banner tone="warning" action={{ label: "Export", onClick: () => void r.exportDocx() }}>
@@ -122,6 +132,8 @@ export default function Home() {
         open={r.pendingConfirm !== null}
         kind={r.pendingConfirm ?? "start_new"}
         onResolve={r.resolveConfirm}
+        projectTitle={project?.title}
+        fileName={r.pendingFileName ?? undefined}
       />
 
       {/* "Choose another file" from the error panel; the dropzone has its own input. */}

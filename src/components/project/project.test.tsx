@@ -3,7 +3,6 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axe } from "vitest-axe";
-import { Toaster } from "sonner";
 import { RESULTS_HEADING_ID } from "@/lib/ui-contracts";
 import { LiveRegionProvider } from "@/components/shell/LiveRegion";
 import { AppHeader } from "@/components/shell/AppHeader";
@@ -12,9 +11,6 @@ import { ExportButton } from "./ExportButton";
 import { NoSteps } from "./NoSteps";
 
 afterEach(cleanup);
-
-// jsdom lacks pointer capture; sonner calls it on pointerdown inside a toast (swipe-to-dismiss).
-Element.prototype.setPointerCapture ??= () => {};
 
 describe("ProjectTitle", () => {
   it("is a focusable h1 with the results id; Rename → Enter saves and focus returns to Rename", async () => {
@@ -60,12 +56,7 @@ describe("ProjectTitle", () => {
 });
 
 function withShell(ui: React.ReactNode) {
-  return (
-    <LiveRegionProvider>
-      {ui}
-      <Toaster />
-    </LiveRegionProvider>
-  );
+  return <LiveRegionProvider>{ui}</LiveRegionProvider>;
 }
 
 describe("ExportButton", () => {
@@ -95,13 +86,24 @@ describe("ExportButton", () => {
     const retry = await screen.findByRole("button", { name: "Try again" });
     expect(screen.getByText(/couldn.t be created/)).toBeInTheDocument();
     await waitFor(() => expect(retry).toHaveFocus());
-    // The toast renders inside sonner's region in this container; check it while it's open.
+    // Focus announces it: the message is Try again's description, and the toast isn't live (D13).
+    expect(retry).toHaveAccessibleDescription(/Export failed\. The Word file couldn.t be created/);
+    expect(retry.closest("[aria-live]")).toBeNull();
     const toastViolations = await axe(container);
     await user.click(retry);
     expect(onExport).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Try again" })).toBeNull());
     expect(screen.getByRole("button", { name: "Export to Word" })).toHaveFocus();
     expect(toastViolations).toHaveNoViolations();
+  });
+
+  it("Dismiss closes the toast and returns focus to Export", async () => {
+    const user = userEvent.setup();
+    render(withShell(<ExportButton onExport={vi.fn().mockRejectedValue(new Error("boom"))} />));
+    await user.click(screen.getByRole("button", { name: "Export to Word" }));
+    await user.click(await screen.findByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Export to Word" })).toHaveFocus();
   });
 });
 
@@ -128,10 +130,12 @@ describe("AppHeader", () => {
     const onStartNew = vi.fn();
     const { container, rerender } = render(
       withShell(
-        <AppHeader saveStatus="saved" onStartNew={onStartNew}>
-          <ProjectTitle value="Create a purchase order" onChange={vi.fn()} />
-          <ExportButton onExport={vi.fn(async () => {})} />
-        </AppHeader>,
+        <AppHeader
+          saveStatus="saved"
+          onStartNew={onStartNew}
+          title={<ProjectTitle value="Create a purchase order" onChange={vi.fn()} />}
+          actions={<ExportButton onExport={vi.fn(async () => {})} />}
+        />,
       ),
     );
     const header = screen.getByRole("banner");
@@ -143,9 +147,9 @@ describe("AppHeader", () => {
     expect(onStartNew).toHaveBeenCalledOnce();
     const editorViolations = await axe(container);
 
-    rerender(withShell(<AppHeader saveStatus="saving" onStartNew={onStartNew}><span>t</span></AppHeader>));
+    rerender(withShell(<AppHeader saveStatus="saving" onStartNew={onStartNew} title={<span>t</span>} />));
     expect(screen.getByRole("banner")).toHaveTextContent("Saving…");
-    rerender(withShell(<AppHeader saveStatus="error" onStartNew={onStartNew}><span>t</span></AppHeader>));
+    rerender(withShell(<AppHeader saveStatus="error" onStartNew={onStartNew} title={<span>t</span>} />));
     expect(screen.getByRole("banner")).toHaveTextContent("Not saved");
     expect(screen.getByRole("banner").querySelector("[aria-live],[role=status]")).toBeNull();
     expect(editorViolations).toHaveNoViolations();

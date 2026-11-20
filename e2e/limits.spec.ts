@@ -29,7 +29,7 @@ test("a 10:30 recording is rejected as too_long before any upload", async ({ pag
   await page.goto("/");
   await uploadSample(page, TOO_LONG);
 
-  await expect(page.getByRole("heading", { name: /video is too long/i })).toBeVisible({
+  await expect(page.getByRole("heading", { name: /recording is too long/i })).toBeVisible({
     timeout: 30_000,
   });
   await expect(
@@ -48,7 +48,7 @@ test("a corrupt MP4 is rejected as undecodable before any upload", async ({ page
   await expect(page.getByRole("heading", { name: /video can't be played/i })).toBeVisible({
     timeout: 30_000,
   });
-  await expect(page.getByText(/re-export it as h\.264 mp4/i)).toBeVisible();
+  await expect(page.getByText(/re-export it as an h\.264 mp4/i)).toBeVisible();
   expect(uploads).toHaveLength(0);
 });
 

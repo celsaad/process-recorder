@@ -12,16 +12,25 @@ import {
 import { RESULTS_HEADING_ID, type ConfirmDialogProps, type ConfirmKind } from "@/lib/ui-contracts";
 import { buttonClass } from "@/components/shell/button-styles";
 
-export const CONFIRM_COPY: Record<ConfirmKind, { title: string; body: string; cancel: string; confirm: string }> = {
+type CopyArgs = { projectTitle?: string; fileName?: string };
+
+const quoted = (title?: string) => (title?.trim() ? `“${title.trim()}”` : null);
+
+export const CONFIRM_COPY: Record<
+  ConfirmKind,
+  { title: string; body: (args: CopyArgs) => string; cancel: string; confirm: string }
+> = {
   start_new: {
     title: "Start new?",
-    body: "This deletes the current test script and its screenshots from this browser, and the recording held by Gemini. Export to Word first if you want to keep it.",
+    body: ({ projectTitle }) =>
+      `This deletes ${quoted(projectTitle) ?? "the current test script"} and its screenshots from this browser, and the recording held by Gemini. Export to Word first if you want to keep it.`,
     cancel: "Cancel",
     confirm: "Delete and start new",
   },
   replace: {
     title: "Replace current project?",
-    body: "Processing the new recording deletes the current test script and its screenshots from this browser. Export to Word first if you want to keep it.",
+    body: ({ projectTitle, fileName }) =>
+      `${fileName ? `Processing ${quoted(fileName)}` : "Processing the new recording"} deletes ${quoted(projectTitle) ?? "the current test script"} and its screenshots from this browser. Export to Word first if you want to keep it.`,
     cancel: "Keep current project",
     confirm: "Replace",
   },
@@ -44,7 +53,7 @@ function fallbackFocusTarget(): HTMLElement | null {
  * (Radix only restores focus to its own Trigger; this dialog is opened by state, so we keep
  * the previously focused element ourselves, with a fallback when there was none.)
  */
-export function ConfirmDialog({ open, kind, onResolve }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, kind, onResolve, projectTitle, fileName }: ConfirmDialogProps) {
   const copy = CONFIRM_COPY[kind];
   const returnTo = useRef<HTMLElement | null>(null);
 
@@ -72,7 +81,9 @@ export function ConfirmDialog({ open, kind, onResolve }: ConfirmDialogProps) {
         className="flex max-w-[460px] flex-col gap-5 rounded-xl p-6 ring-0 shadow-[0_24px_64px_rgba(21,24,28,0.4)] data-[size=default]:max-w-[calc(100%-32px)] data-[size=default]:sm:max-w-[460px]">
         <div className="flex flex-col gap-2">
           <AlertDialogTitle className="text-xl font-semibold tracking-[-0.01em]">{copy.title}</AlertDialogTitle>
-          <AlertDialogDescription className="text-sm text-pretty text-foreground-2">{copy.body}</AlertDialogDescription>
+          <AlertDialogDescription className="text-sm text-pretty [overflow-wrap:anywhere] text-foreground-2">
+            {copy.body({ projectTitle, fileName })}
+          </AlertDialogDescription>
         </div>
         <div className="flex flex-wrap justify-end gap-3">
           <AlertDialogCancel className={buttonClass("secondary", "lg", "px-4.5")}>{copy.cancel}</AlertDialogCancel>

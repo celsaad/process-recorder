@@ -131,7 +131,7 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.75rem; /* sonner's toast radius; component radii are set in @theme */
+  --radius: 0.75rem; /* shadcn base radius; component radii are set in @theme */
   --sidebar: #FFFFFF;
   --sidebar-foreground: #15181C;
   --sidebar-primary: #1D5BD6;
@@ -223,14 +223,17 @@
   box-shadow: 0 0 0 6px var(--focus-ring-outer);
 }
 
-/* The sticky header (64 px, ~120 px when it wraps on narrow screens) must not cover the
-   focused element (WCAG 2.4.11). */
+/* The sticky header must not cover the focused element (WCAG 2.4.11). AppHeader sets
+   --header-height on <html> from its real height (a ResizeObserver), which grows when the
+   header wraps; the values here are only the pre-hydration fallbacks. 24 px of margin keeps
+   the focus ring clear of the header's edge. */
 html {
-  scroll-padding-top: 88px;
+  --header-height: 64px;
+  scroll-padding-top: calc(var(--header-height) + 24px);
 }
 @media (max-width: 639px) {
   html {
-    scroll-padding-top: 184px;
+    --header-height: 160px;
   }
 }
 
