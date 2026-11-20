@@ -118,12 +118,12 @@ The plan was reviewed by an independent AI reviewer before any code was written.
     description: string,
     expectedResult: string,
     timestamp: string,            // "MM:SS", the moment just before the action
-    box_2d: number[]              // ARRAY of INTEGER, min/maxItems 4: [ymin, xmin, ymax, xmax], 0–1000; [] if none
+    box_2d: number[]              // ARRAY of INTEGER: [ymin, xmin, ymax, xmax], 0–1000, or [] if none
   }>
 }
 ```
 
-The OpenAPI subset has no tuples, so `box_2d` is an integer array with length 4. zod enforces that and the 0–1000 range.
+The OpenAPI subset has no tuples, so `box_2d` is a plain integer array. zod accepts length 0 or 4 within 0–1000. Any other shape becomes `[]` (no highlight) instead of failing the whole response, because a bad box shouldn't cost the user their steps.
 
 **Validation and retries.**
 - The server validates with **zod**. On failure it retries once with the validation error added to the prompt. If that fails too, it returns `bad_model_output`.
@@ -229,7 +229,7 @@ A "Saving… / Saved" indicator sits in the header.
 | `gemini_failed` (5xx / file `FAILED` / poll timeout) | server | "Gemini couldn't process the video." | Retry / choose another file |
 | `gemini_blocked` (`SAFETY` / empty) | server | "Gemini declined to analyze this video." | Choose another file |
 | `bad_model_output` (zod / `MAX_TOKENS`) | server | "The AI's response came back incomplete." | Retry analysis (no re-upload) |
-| `file_expired` | server (`files.get` 404 on a project restored after 48 h) | Handled silently: re-upload from the stored video blob, then retry | Automatic |
+| `file_expired` | server (`files.get` 404, e.g. retrying analysis on a project restored after 48 h) | "The uploaded video expired. We'll upload it again from your browser." | Retry (re-uploads from the stored video blob) |
 | `not_screen_recording` | model flag | The model's `rejectionReason` + what a good recording looks like | Choose another file |
 | `no_steps` | model returned `[]` | Empty state with "Add a step manually" | Add manually |
 | `capture_failed` | client (seek timeout) | Placeholder on that step only + "Pick frame" | Re-pick |
@@ -285,11 +285,21 @@ Target: WCAG 2.2 AA where it applies. We check it with **a keyboard-only walkthr
 
 ---
 
-## D14. Testing scope
+## D14. Testing strategy
 
-**Status:** Planned
+**Status:** Planned (details: [IMPLEMENTATION.md § Testing strategy](IMPLEMENTATION.md#testing-strategy))
 
-Given 3 hours: **Vitest unit tests on pure logic**: `parseTimestamp`, `box_2d` ↔ rect conversion, the zod schema / response normalization (sorting, de-duplication), and the two reducers. The UI is verified manually against the example videos plus an axe pass. Next investment: Playwright end-to-end tests with a recorded Gemini response fixture.
+Five layers, each catching a different class of bug:
+
+1. **Unit (Vitest):** every pure module, with a required-cases list per module (timestamps, geometry, schema, normalization, reducers, error mapping, persistence, the API client's NDJSON reader).
+2. **Component (Testing Library + `vitest-axe`):** labels, focus management, keyboard handling and per-component axe checks for every interactive component.
+3. **Route / contract:** route handlers called directly with Gemini mocked. Server and client both test against the same hand-written wire fixtures, so they can't drift apart.
+4. **End-to-end (Playwright + axe):** a real browser and a real sample video, with a **fake Gemini mode** (`GEMINI_FAKE=1`, scenario picked by cookie) so the tests are repeatable, free and fast. Covers the happy path, errors, persistence across reloads, a keyboard-only flow and page-level axe scans. Runs in GitHub Actions.
+5. **Live + manual:** one opt-in `@live` spec against real Gemini, plus opening the export in Word.
+
+**Why a fake Gemini mode.** Model output varies and costs quota. Error scenarios (429, blocked, no steps) are hard to trigger on demand. The fake lets the E2E tests check *our* behaviour for each case. The live spec checks the model separately.
+
+**Deliberately not tested:** video decoding in jsdom (impossible; Playwright covers it), model quality by assertion (measured in DEBRIEF instead), visual regression.
 
 ---
 
@@ -328,3 +338,6 @@ An independent AI reviewer (a separate model with no stake in the plan) critique
 | D13 | `role="alert"` + focus move; 5 s undo toast | Focus move only; undo stays until dismissed | Double announcement; WCAG 2.2.1 |
 | D3 | Native PNG | WebP stored (JPEG fallback), JPEG on export, max 1920 px | 2–5 MB per PNG would bloat the docx and storage. WebP keeps text sharper than JPEG. AVIF can't be encoded from a canvas. docx needs JPEG/PNG |
 | D15 | Markdown, print, dnd-kit, auto-backoff | Cut | Fit 3 hours |
+| D14 | Unit tests on pure logic only | Five layers incl. component, contract, Playwright E2E with fake Gemini, CI | Requested. The contract fixtures also guard the parallel build |
+| D5 | `box_2d` both "length 4" and "`[]` if none" | Length 0 or 4; anything else → `[]` | Contradiction found in the plan review |
+| D10 | Silent re-upload on `file_expired` | Explicit retry from upload | Second review: the silent path was nearly unreachable |

@@ -1,5 +1,7 @@
 # Architecture
 
+> The exact contracts (types, function signatures, HTTP status behaviour, file ownership) live in [IMPLEMENTATION.md](IMPLEMENTATION.md) and win over this overview.
+
 ## End-to-end flow
 
 ```mermaid
@@ -44,6 +46,7 @@ src/
     api/
       upload/route.ts        # limits → temp file → Files API → poll ACTIVE, NDJSON stages
       analyze/route.ts       # files.get → generateContent → validate → JSON
+      file/route.ts          # DELETE ?name= (Start new)
   server/
     gemini.ts                # SDK client, upload/poll/generate/delete, error classification
     prompt.ts                # the prompt + response schema
@@ -58,12 +61,12 @@ src/
     frames.ts                # load probe + seek-and-capture with timeouts (D3)
     persistence.ts           # IndexedDB keys + debounced project save (D8)
     export-docx.ts           # docx builder (D11)
-    transport.ts             # NDJSON reader, AbortController wiring
+    api-client.ts            # uploadVideo / analyzeVideo / deleteGeminiFile, NDJSON reader
   components/
     upload/Dropzone.tsx
     upload/JobProgress.tsx   # stage list + elapsed time + live region + cancel
-    steps/StepList.tsx
-    steps/StepCard.tsx       # inline fields, move/delete buttons, frame button
+    editor/StepList.tsx
+    editor/StepCard.tsx      # inline fields, move/delete buttons, frame button
     frames/FramePicker.tsx   # dialog with scrubber (feature 2)
     highlight/HighlightEditor.tsx  # SVG overlay, pointer + keyboard (feature 4)
     export/ExportButton.tsx
@@ -80,14 +83,14 @@ src/
 type UploadEvent =
   | { type: "stage"; stage: "received" | "sending_to_gemini" | "gemini_processing" }
   | { type: "ready"; fileName: string; mimeType: string }
-  | { type: "error"; error: AppError };
+  | { type: "error"; error: SerializedAppError };
 
 // POST /api/analyze  body: { fileName: string }
 type AnalyzeResponse =
   | { ok: true; processTitle: string; steps: RawStep[] }  // sorted, validated
-  | { ok: false; error: AppError };
+  | { ok: false; error: SerializedAppError };
 
-type AppError = { kind: ErrorKind; message: string; retryable: boolean };
+type SerializedAppError = { kind: ErrorKind; detail?: string }; // copy lives in ERROR_COPY
 ```
 
 ## Data model (client)
@@ -97,7 +100,7 @@ type AppError = { kind: ErrorKind; message: string; retryable: boolean };
 type Project = {
   id: string;
   title: string;                 // from Gemini processTitle, editable
-  video: { name: string; durationSec: number; width: number; height: number };
+  video: { name: string; sizeBytes: number; mimeType: string; durationSec: number; width: number; height: number };
   gemini?: { fileName: string; mimeType: string; uploadedAt: string }; // expires after 48 h
   steps: Step[];
   updatedAt: string;
@@ -112,6 +115,7 @@ type Step = {
   captureState: "pending" | "ok" | "failed";
   highlight: Rect | null;        // normalized 0–1, composited only on export
   highlightSource: "gemini" | "user" | null;
+  suggestedHighlight: Rect | null; // Gemini's original box, for "Reset to suggestion"
 };
 
 type Rect = { x: number; y: number; w: number; h: number };
