@@ -1,6 +1,6 @@
 // POST /api/analyze { fileName } → AnalyzeResponse (D4, D5). See IMPLEMENTATION.md, "HTTP behaviour".
 import { AppError } from "@/lib/errors";
-import { normalizeSteps } from "@/lib/normalize";
+import { cleanText, normalizeSteps } from "@/lib/normalize";
 import { classifyGeminiError, geminiFor } from "@/server/gemini";
 import { UNTITLED_PROCESS, analyzeError, analyzeJson, isValidFileName } from "@/server/http";
 
@@ -23,7 +23,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     return analyzeJson({
       ok: true,
-      processTitle: parsed.processTitle.trim() || UNTITLED_PROCESS,
+      processTitle: cleanText(parsed.processTitle) || UNTITLED_PROCESS,
       steps: normalizeSteps(parsed),
     });
   } catch (e) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSteps } from "./normalize";
+import { cleanText, normalizeSteps } from "./normalize";
 import { GeminiResponseSchema, type GeminiResponse, type GeminiStep } from "./schema";
 import realResponse from "@/server/__fixtures__/gemini-response.json";
 
@@ -91,5 +91,23 @@ describe("normalizeSteps", () => {
     for (let i = 1; i < out.length; i++) {
       expect(out[i].timestampSec).toBeGreaterThan(out[i - 1].timestampSec);
     }
+  });
+});
+
+describe("cleanText (control characters from the model)", () => {
+  it("strips NULs and other C0 controls seen in real Gemini output, keeping tabs and newlines", () => {
+    expect(cleanText("Click 'MM - Requisi\u0000\u0000o'")).toBe("Click 'MM - Requisio'");
+    expect(cleanText("a\u0007b\u001Fc\u007Fd")).toBe("abcd");
+    expect(cleanText("line 1\nline 2\tx")).toBe("line 1\nline 2\tx");
+    expect(cleanText("  Requisição  ")).toBe("Requisição");
+  });
+});
+
+describe("normalizeSteps cleans model text", () => {
+  it("removes control characters from action, description and expected result", () => {
+    const [s] = normalizeSteps(response([step("0:05", "Click 'Requisi\u0000\u0000o'")]));
+    expect(s.action).toBe("Click 'Requisio'");
+    expect(s.description).toBe("do Click 'Requisio'");
+    expect(s.expectedResult).toBe("done Click 'Requisio'");
   });
 });

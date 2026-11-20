@@ -392,6 +392,25 @@ describe("useProcessRecorder", () => {
     );
     expect(exportDocx.downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "create-a-purchase-order.docx");
   });
+
+  it("exportDocx clicked mid-capture waits for every screenshot before building the document", async () => {
+    setup({}, { delayMs: 40 }); // slow captures: 4 steps x 40 ms
+    const { result } = render();
+    act(() => result.current.onFile(video()));
+    await waitFor(
+      () => {
+        const j = result.current.job;
+        expect(j.phase === "running" && j.stage === "capturing" && (j.capture?.done ?? 0) < 4).toBe(true);
+      },
+      { timeout: 3000, interval: 1 },
+    );
+    vi.mocked(exportDocx.buildDocx).mockClear();
+    await act(() => result.current.exportDocx());
+    expect(exportDocx.buildDocx).toHaveBeenCalledTimes(1);
+    const [, steps] = vi.mocked(exportDocx.buildDocx).mock.calls[0];
+    expect(steps).toHaveLength(4);
+    expect(steps.every((st) => st.captureState === "ok")).toBe(true);
+  });
 });
 
 /** Lane B's saver semantics: after cancel(), flush() still waits for a write already running. */

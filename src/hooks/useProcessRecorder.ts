@@ -323,8 +323,12 @@ export function useProcessRecorder(): Recorder {
     [getGrabber, setShot, stepsDispatch, persistSafe],
   );
 
+  /** Settles when the running capture pass ends (null when none runs). Export awaits it,
+   *  so exporting mid-capture doesn't produce a document full of "No screenshot" cells. */
+  const captureDoneRef = useRef<Promise<void> | null>(null);
+
   /** Sequential capture of every step without a shot. Cancel stops it; the rest become "failed" (Pick frame). */
-  const captureAll = useCallback(
+  const captureAllSteps = useCallback(
     async (gen: number, signal: AbortSignal) => {
       const targets = stepsRef.current.steps.filter((s) => s.captureState !== "ok").map((s) => s.id);
       const total = targets.length;
@@ -349,6 +353,23 @@ export function useProcessRecorder(): Recorder {
       }
     },
     [stepsRef, jobDispatch, stepsDispatch, captureInto],
+  );
+
+  /** Runs a capture pass and publishes it on captureDoneRef for exportDocx. */
+  const captureAll = useCallback(
+    (gen: number, signal: AbortSignal): Promise<void> => {
+      const run = captureAllSteps(gen, signal);
+      const done = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      captureDoneRef.current = done;
+      void done.then(() => {
+        if (captureDoneRef.current === done) captureDoneRef.current = null;
+      });
+      return run;
+    },
+    [captureAllSteps],
   );
 
   /** Runs the job from `from` (validate a new file, or resume after an error) to ready or error. */
@@ -635,6 +656,8 @@ export function useProcessRecorder(): Recorder {
   );
 
   const exportDocx = useCallback(async () => {
+    // If screenshots are still being captured, finish them first (the button shows "Exporting…").
+    if (captureDoneRef.current) await captureDoneRef.current;
     const meta = projectRef.current;
     if (!meta) return;
     const current = stepsRef.current.steps;
