@@ -36,6 +36,10 @@ CI (GitHub Actions) runs `pnpm check` and the E2E suite on every push and PR.
 
 ## What it does
 
+![Editor with steps from a real Gemini analysis](docs/screenshots/03-editor.png)
+
+More states (processing, frame picker, highlight editing, Undo, export options, every error): [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
+
 **Core:** upload a recording (MP4, MOV or WebM; best under 3 minutes, up to 10 minutes and 500 MB) → Gemini returns timestamped steps → screenshots are captured at those timestamps in the browser → an editable list of steps.
 
 **Beyond the core:**

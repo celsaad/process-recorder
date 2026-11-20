@@ -221,8 +221,10 @@ export function HighlightEditor({ imageUrl, alt, stepNumber, highlight, suggeste
           </div>
         )}
       </div>
+      {/* The hint is always in the layout; only its opacity changes. Removing it on blur shifted
+          the cards below mid-click, so a click on another step's button landed elsewhere. */}
       {highlight && (
-        <p id={hintId} className={cn("m-0 text-[13px] leading-[18px] text-muted-foreground", !active && "sr-only")}>
+        <p id={hintId} className={cn("m-0 text-[13px] leading-[18px] text-muted-foreground", !active && "opacity-0")}>
           {KEY_HINT}
         </p>
       )}
