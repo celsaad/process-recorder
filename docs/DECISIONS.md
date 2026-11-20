@@ -103,7 +103,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 **Server-side limits.** The client checks everything first, but client checks can be bypassed. The server rejects bodies over **500 MB** (the Files API allows 2 GB) or with a non-video `Content-Type`. The `PROCESSING` poll times out after 2 minutes.
 
-**Cancellation.** The client aborts with `AbortController`. Server handlers pass `request.signal` to the polling loop and SDK calls. This stops *our waiting*. A `generateContent` call already in flight may still be billed.
+**Cancellation.** The client aborts with `AbortController`. Server handlers pass `request.signal` to the polling loop and SDK calls. This stops *our waiting*. A `generateContent` call already in flight may still be billed. **Known limit (found in review):** the installed `@google/genai` `files.upload` ignores `abortSignal`, so cancelling during "Sending to Gemini" lets that transfer finish in the background. Polling then stops, and the Gemini file and the temp file are deleted. Nothing leaks, but the server's bandwidth isn't saved.
 
 **Secrets.** `GEMINI_API_KEY` is read only on the server from `.env.local` (gitignored, verified). If it is missing, both endpoints return `missing_api_key` and the UI shows setup instructions instead of a generic failure.
 
