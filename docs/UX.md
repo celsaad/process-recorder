@@ -12,7 +12,7 @@
 | **Analyzing** | Same stage list | Status: "Analyzing steps" |
 | **Capturing** | Step cards render immediately with skeleton screenshots that fill in one by one ("Screenshots 3/12") | Status: "Capturing screenshots". Focus stays put |
 | **Ready** | Editor: title, step cards, Export button, save indicator | Focus moves to the results heading **after** capture ends. Status: "12 steps ready" |
-| **No steps** | Explanation + "Add a step manually" | Focus on the message heading |
+| **No steps** | Explanation + "Add a step manually" | Focus on the results heading (the process title), same as Ready. Status: "No steps found. Add a step manually." |
 | **Error** | Error panel: cause, what to do, primary action (see DECISIONS D10) | Focus on the panel heading (no `role="alert"`, to avoid double announcements) |
 | **Storage full** | Persistent banner: "Changes won't survive a refresh. Export now." | Status message |
 | **Cancelled** | Back to the dropzone | Status: "Cancelled" |

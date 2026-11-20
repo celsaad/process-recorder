@@ -97,7 +97,7 @@ export type StepsAction =
   | { type: "undoRemove" }
   | { type: "dismissUndo" }
   | { type: "move"; id: string; direction: "up" | "down" }
-  | { type: "setTimestamp"; id: string; timestampSec: number } // re-pick: clears highlight AND suggestedHighlight if source was "gemini" (D9)
+  | { type: "setTimestamp"; id: string; timestampSec: number } // re-pick: always clears suggestedHighlight (the suggestion belonged to the old frame, D9); clears highlight too if its source was "gemini", keeps a user-drawn one
   | { type: "setCaptureState"; id: string; captureState: CaptureState }
   | { type: "setHighlight"; id: string; highlight: Rect | null; source: HighlightSource };
 
@@ -106,6 +106,9 @@ export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export type Recorder = {
   job: JobState;
+  /** The current project. Between probe and the end of analysis this is an
+   *  in-memory draft (never persisted) so JobProgress can show VideoInfo;
+   *  the page only renders the editor from it in `ready` or `running/capturing`. */
   project: Project | null;
   steps: StepsState;
   dispatch: (a: StepsAction) => void;

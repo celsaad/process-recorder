@@ -103,7 +103,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 **Server-side limits.** The client checks everything first, but client checks can be bypassed. The server rejects bodies over **500 MB** (the Files API allows 2 GB) or with a non-video `Content-Type`. The `PROCESSING` poll times out after 2 minutes.
 
-**Cancellation.** The client aborts with `AbortController`. Server handlers pass `request.signal` to the polling loop and SDK calls. This stops *our waiting*. A `generateContent` call already in flight may still be billed.
+**Cancellation.** The client aborts with `AbortController`. Server handlers pass `request.signal` to the polling loop and SDK calls. This stops *our waiting*. A `generateContent` call already in flight may still be billed. **Known limit (found in review):** the installed `@google/genai` `files.upload` ignores `abortSignal`, so cancelling during "Sending to Gemini" lets that transfer finish in the background. Polling then stops, and the Gemini file and the temp file are deleted. Nothing leaks, but the server's bandwidth isn't saved.
 
 **Secrets.** `GEMINI_API_KEY` is read only on the server from `.env.local` (gitignored, verified). If it is missing, both endpoints return `missing_api_key` and the UI shows setup instructions instead of a generic failure.
 
@@ -268,7 +268,7 @@ Validation that can run in the browser runs there first, so obviously bad files 
 **Status:** Planned
 
 - Inline-editable fields (auto-growing textareas). No modal "edit mode".
-- Reordering uses **Move up / Move down buttons** on each step. Focus follows the moved step, and a status message announces "Step 3 moved to position 2". This meets WCAG 2.5.7 without drag. Drag-and-drop (dnd-kit) is a stretch goal.
+- Reordering uses **Move up / Move down buttons** on each step. Focus follows the moved step, and a status message announces "Step moved to position 2". This meets WCAG 2.5.7 without drag. Drag-and-drop (dnd-kit) is a stretch goal.
 - At the ends, Move up/down are **`aria-disabled`, not `disabled`**. A natively disabled button drops focus to `<body>` the moment a step reaches the top, which breaks "focus stays on the button".
 - **No custom keyboard shortcuts inside steps.** In a macOS textarea, ⌘↑/↓, ⌘⌫ and ⌘Z already mean caret-to-start/end, delete-to-line-start and native undo. Overriding them would break text editing. Tab order plus labelled buttons are the keyboard flow.
 - Delete leaves an **inline row where the card was: "Step 3 deleted · Undo · Dismiss"**. It stays until dismissed or until the next delete (WCAG 2.2.1 forbids a short timer). **Focus moves to that row's Undo button**, so Undo is immediately actionable and the screen reader lands on it ("Step 3 deleted. Undo"). Tab continues to Dismiss, then the next step. Dismiss (or the next delete) removes the row, and focus moves to the next step, or the previous one if the deleted step was last. **Undo** puts the step back at its original position and moves focus to its "Step N" heading. *Revised after the design review:* a floating toast sits last in the DOM, which at 20 steps put Undo dozens of Tabs away.
