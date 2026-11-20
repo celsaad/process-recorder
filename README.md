@@ -4,7 +4,7 @@ Turn a screen recording into an editable **test script**: a list of steps, each 
 
 Consultants currently spend up to 45 minutes documenting a 2-minute process by hand. This app uses Gemini video understanding to draft the script. The consultant then fixes what's wrong and exports.
 
-> **Status: in development.** Features below are planned. [docs/DECISIONS.md](docs/DECISIONS.md) tracks what is planned vs built.
+> All features below are built and tested. [docs/DECISIONS.md](docs/DECISIONS.md) records each decision and what changed during the build.
 
 ## Run it
 
@@ -20,6 +20,19 @@ pnpm dev                     # http://localhost:3000
 |---|---|
 | `GEMINI_API_KEY` | Server-only. Never sent to the browser. |
 | `GEMINI_MODEL` | Defaults to `gemini-3.8-flash`. `gemini-2.5-flash` also works. |
+| `GEMINI_FAKE` | `1` serves canned responses instead of calling Gemini (used by the E2E tests). Leave unset for real use. |
+
+Dev-only pages: `/dev/states` (every shell/upload/error state), `/dev/editor` (the step editor with fixtures), `/dev/media` (probe, capture and export a local video).
+
+## Test it
+
+```bash
+pnpm check                             # typecheck + lint + unit/component tests (Vitest)
+pnpm test:e2e                          # Playwright E2E against fake Gemini (builds the app)
+GEMINI_LIVE=1 pnpm test:e2e --grep @live   # one run against real Gemini (needs samples/j45-pr-po-si.mp4)
+```
+
+CI (GitHub Actions) runs `pnpm check` and the E2E suite on every push and PR.
 
 ## What it does
 
@@ -43,4 +56,6 @@ pnpm dev                     # http://localhost:3000
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Request flow, API contracts, module map, data model |
 | [docs/UX.md](docs/UX.md) | Every UI state, debouncing, keyboard flow, a11y checklist |
 | [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | Build plan: shared contracts and parallel lanes for concurrent agents |
-| [docs/DEBRIEF.md](docs/DEBRIEF.md) | Walkthrough script and talking points for the debrief |
+| [docs/DEBRIEF.md](docs/DEBRIEF.md) | Walkthrough script, talking points and measured numbers for the debrief |
+
+**Design:** the UI was designed first on a Claude Design canvas (private): <https://claude.ai/artifact/UpCBEnL2FUav7hRbM3Njey>.

@@ -9,7 +9,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 ## D1. Run locally; no deployment target
 
-**Status:** Planned
+**Status:** Built. Runs with `pnpm dev` / `pnpm start`; the repo is on GitHub (private) with CI.
 
 **Context.** The exercise is 3 hours. Videos are expected to be under 3 minutes (see D16); QuickTime screen recordings on a Retina display can be 50–300 MB.
 
@@ -24,7 +24,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 ## D2. Next.js App Router + TypeScript + Tailwind + shadcn/ui
 
-**Status:** Planned
+**Status:** Built. `shadcn init` (radix-nova) worked with the Next 16 config inside its 5-minute timebox; no Radix fallback was needed.
 
 **Decision.** Next.js 16 (App Router), React 19, Tailwind 4, shadcn/ui (Radix underneath).
 
@@ -39,7 +39,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 ## D3. Screenshots are captured in the browser, not on the server
 
-**Status:** Planned
+**Status:** Built, **revised in integration.** Live runs capture 25 screenshots in about 1.5 s. Two fixes came from real browsers: (1) `loadeddata` fires only once per load, so waiting for it after a seek timed out; waits now poll the condition (`readyState >= 2 && !seeking`, `waitForFrameData`). (2) Export now waits for a running capture pass, so exporting early can't produce "No screenshot" cells.
 
 **Context.** Gemini returns timestamps, not images. Someone has to turn timestamps into frames.
 
@@ -78,7 +78,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 ## D4. Two-step server API: upload, then analyze
 
-**Status:** Planned
+**Status:** Built. Spike results below. Known limit: the SDK's `files.upload` ignores `abortSignal` (documented below).
 
 **Decision.**
 1. `POST /api/upload`: raw video body (`fetch`). The server checks `Content-Length` and the type, pipes `request.body` to a temp file, uploads it to the **Gemini Files API**, and polls until the file is `ACTIVE`. **The response is an NDJSON stream of stage events:** `received` → `sending_to_gemini` → `gemini_processing` → `ready { fileName, mimeType }` (or `error`).
@@ -111,7 +111,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 ## D5. Structured output with a response schema, validated with zod
 
-**Status:** Planned
+**Status:** Built with `gemini-3.8-flash`. **Revised in integration:** Gemini sometimes returns NUL characters in place of accented letters, so all model text passes through `cleanText` (strips C0 control characters).
 
 **Decision.** Call Gemini with `responseMimeType: "application/json"` and a `responseSchema` (OpenAPI subset). Every field is listed in `required`, and `propertyOrdering` is set:
 
@@ -149,7 +149,7 @@ The OpenAPI subset has no tuples, so `box_2d` is a plain integer array. zod acce
 
 ## D6. Which frame is "the" screenshot
 
-**Status:** Planned
+**Status:** Built.
 
 **Decision.** Ask Gemini for the timestamp **just before the action is performed** (the target is visible and not yet clicked). Capture at that time. The highlight box (D9) marks *where* to act.
 
@@ -161,7 +161,7 @@ The OpenAPI subset has no tuples, so `box_2d` is a plain integer array. zod acce
 
 ## D7. Client state is an explicit state machine
 
-**Status:** Planned
+**Status:** Built (`job-machine.ts`, `steps-reducer.ts`, both unit-tested; invalid transitions return the same state object).
 
 **Decision.** A single `useReducer` with a discriminated union for the job phase. The stages mirror the server's events (D4):
 
@@ -179,7 +179,7 @@ Steps live in a separate reducer (`add | update | remove | restore | move | setS
 
 ## D8. Local persistence in IndexedDB with debounced autosave
 
-**Status:** Planned
+**Status:** Built. Review added a generation counter so a save queued before "Start new" can't resurrect the old project.
 
 **Decision.** Persist the current project to IndexedDB (`idb-keyval`) **under separate keys, so a text edit never rewrites binary data**:
 
@@ -204,7 +204,7 @@ A "Saving… / Saved" indicator sits in the header.
 
 ## D9. One highlight per step: Gemini suggests it, the user adjusts it
 
-**Status:** Planned, **timeboxed to 30 minutes** (the first feature cut if it overruns)
+**Status:** Built inside the 30-minute timebox (full editor, no read-only fallback needed): 4 corner handles, pointer and keyboard editing, Reset to suggestion.
 
 **Decision.** Each step has **at most one** highlight rectangle, stored as **normalized coordinates (0–1)**.
 - Gemini's `box_2d` (0–1000) is converted into a *suggested* rectangle.
@@ -224,7 +224,7 @@ A "Saving… / Saved" indicator sits in the header.
 
 ## D10. Error taxonomy: every error has a cause, a message and a next action
 
-**Status:** Planned
+**Status:** Built. **Added in integration:** files whose OS reports no MIME type (`.mov` on Windows) get one inferred from the extension before upload (`withVideoType`).
 
 | Kind | Detected where | User sees | Action |
 |---|---|---|---|
@@ -251,7 +251,7 @@ Validation that can run in the browser runs there first, so obviously bad files 
 
 ## D11. Export: Word only
 
-**Status:** Planned
+**Status:** Built: A4 landscape, 5-column table, screenshots with the highlight burned in.
 
 **Decision.** Build `.docx` **client-side** with the `docx` library:
 - A **landscape** page with the title, then a table with columns *# · Action · Description · Expected result · Screenshot*.
@@ -265,7 +265,7 @@ Validation that can run in the browser runs there first, so obviously bad files 
 
 ## D12. Step editing UX
 
-**Status:** Planned
+**Status:** Built, with review revisions noted inline (inline Undo row with focus on Undo, `aria-disabled` move buttons).
 
 - Inline-editable fields (auto-growing textareas). No modal "edit mode".
 - Reordering uses **Move up / Move down buttons** on each step. Focus follows the moved step, and a status message announces "Step moved to position 2". This meets WCAG 2.5.7 without drag. Drag-and-drop (dnd-kit) is a stretch goal.
@@ -282,7 +282,7 @@ Validation that can run in the browser runs there first, so obviously bad files 
 
 ## D13. Accessibility baseline
 
-**Status:** Planned
+**Status:** Built: keyboard-only and axe checks run in the E2E suite (`keyboard.spec.ts`, `a11y.spec.ts`). Follow-up in progress: exactly one live region (the toast library adds a second).
 
 Target: WCAG 2.2 AA where it applies. We check it with **a keyboard-only walkthrough and an axe pass, and list known gaps in this doc** rather than claiming full conformance after a 3-hour build.
 
@@ -301,7 +301,7 @@ Target: WCAG 2.2 AA where it applies. We check it with **a keyboard-only walkthr
 
 ## D14. Testing strategy
 
-**Status:** Planned (details: [IMPLEMENTATION.md § Testing strategy](IMPLEMENTATION.md#testing-strategy))
+**Status:** Built: 450 unit/component tests, 18 Playwright E2E tests (fake Gemini), one opt-in live test, and CI with a blocking E2E job.
 
 Five layers, each catching a different class of bug:
 
@@ -319,7 +319,7 @@ Five layers, each catching a different class of bug:
 
 ## D16. Video length: warn over 3 minutes, reject over 10
 
-**Status:** Planned
+**Status:** Built. Verified with the 3:33 and 5:26 sample videos (notice shown) and a synthetic 10:30 clip (rejected before upload).
 
 **Context.** The brief says to expect videos under 3 minutes, but two of the provided example videos are 3:33 and 5:26. A hard 3-minute limit would reject the interviewer's own samples. Real consultants' recordings will also overrun.
 

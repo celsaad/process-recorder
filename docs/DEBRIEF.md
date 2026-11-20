@@ -62,8 +62,30 @@ From [D15](DECISIONS.md#d15-scope-cuts-deliberate): Markdown/print export, drag 
 | Steps needing a re-pick | |
 | Highlights needing adjustment | |
 
-## Actual (fill in during the build)
+## How it was built (process)
 
-- What changed from the plan and why:
-- What surprised me:
-- What I'd cut or keep if I had another hour:
+1. **Plan before code.** Decisions (D1–D16), UX states and architecture were written first. An independent AI reviewer critiqued the plan before any code; that caught a fake progress bar, an autosave that rewrote hundreds of MB, shortcuts that broke textareas, and a schema Gemini can't express (see the [review log](DECISIONS.md#review-log)).
+2. **Design before UI code.** A Claude Design canvas covered every state. A second reviewer audited it (contrast, tab order, missing states) and the canvas was revised before the UI lanes started.
+3. **Contracts, then parallel lanes.** A foundation phase wrote the shared types, error copy and component props, plus real implementations of the small shared modules. Seven agents then built lanes A–G in separate git worktrees, each owning a disjoint set of files ([IMPLEMENTATION.md](IMPLEMENTATION.md)).
+4. **One reviewer per PR, merge on approval.** Every lane went through PR → review → fix rounds → squash-merge, with the merged result checked before each merge. No PR needed a third round. Deferred nits went to a Follow-ups issue.
+5. **Integration in a real browser.** The E2E suite and live runs with the sample videos found what unit tests couldn't (below).
+
+## Actual
+
+**What changed from the plan and why**
+- *Video length (D16):* the brief says under 3 minutes, but two of the provided samples are 3:33 and 5:26. So the app warns at 3 minutes and rejects at 10.
+- *Undo (D12):* a floating toast became an inline "Step N deleted · Undo · Dismiss" row with focus on Undo. A toast sits last in the DOM, dozens of Tabs away.
+- *Focus ring (D13):* a single blue ring vanished on blue buttons and on dark screenshots. It ended as three bands (white / blue / white).
+- *Screenshots (D3):* WebP for storage, JPEG for Word, because docx can't embed WebP.
+
+**What surprised me (found only in a real browser or with the real model)**
+- `loadeddata` fires once per load, never after a seek. Waiting for it made "Enter right after an arrow key" fail about 40% of the time in the frame picker. Fixed by polling the condition.
+- Gemini occasionally returns NUL characters in place of accented letters ("Requisi\u0000\u0000o"). All model text is now cleaned.
+- Windows reports `.mov` files with no MIME type, so the server rejected valid recordings. The type is now inferred from the extension. Playwright's `setInputFiles` hides this bug (it infers a type), so the test builds the File in the page.
+- Exporting while screenshots were still capturing produced "No screenshot" cells. Export now waits for capture.
+- Gemini returns **403, not 404**, for an expired file.
+- Axe flagged contrast on a dialog *mid fade-in*. The scan now waits for finite animations.
+
+**If I had another hour**
+- Keep: everything in the editor and the error taxonomy. Those are what a consultant touches all day.
+- Add: custom columns / client templates (the docx builder already takes a column list), then a quality loop (flag wrong steps → eval set).
