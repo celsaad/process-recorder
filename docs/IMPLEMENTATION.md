@@ -390,8 +390,8 @@ jsdom + Testing Library + `user-event`. Each test file ends with `expect(await a
 | `ErrorPanel` | D | The `h1` gets focus on mount. Copy comes from `ERROR_COPY` with `detail` filled in. `children` render in the detail area. No `role="alert"` |
 | `ConfirmDialog` | D | Focus is trapped, Esc resolves `false`, and focus returns to the trigger |
 | `StepCard` | E | Every textarea has a label. Icon buttons have names that include the step number. Move up has `aria-disabled` on the first step (still focusable; activating it does nothing), Move down on the last. Visible label is a prefix of the accessible name. Reset is shown only when there's a suggestion. `alt="Screenshot for step N"` |
-| `StepList` | E | After a move, focus is on the moved step's button. After a delete, focus goes to the next step (the previous one if it was last). Moves and deletes are announced |
-| `DeletedStepRow` / `StepList` | E | The row renders at the deleted index. No auto-dismiss (advance fake timers 60 s, still visible). Undo restores the step and focuses its heading. Undo is reachable with one Shift+Tab from the focused next step |
+| `StepList` | E | After a move, focus is on the moved step's button. After a delete, focus is on the inline row's Undo (D12). Moves and deletes are announced. Each heading has `id={stepHeadingDomId(N)}` |
+| `DeletedStepRow` / `StepList` | E | The row renders at the deleted index. No auto-dismiss (advance fake timers 60 s, still visible). After delete, focus is on the row's Undo button. Undo restores the step and focuses its heading. Dismiss focuses the next step (previous if last) |
 | `HighlightEditor` | E | Arrows move by 1%, Shift by 10%, Alt resizes, Delete removes. Name is "Highlight on step N screenshot" with instructions via `aria-describedby`. 4 handles |
 | `FramePicker` | C | Arrow and Shift+arrow on the (Radix) slider change the time. Enter on the slider confirms, Enter on a ± button only steps. Esc cancels. Focus returns (video capture mocked) |
 | `useProcessRecorder` | F | Covered in the Lane F tests (hook tests with mocks) |

@@ -115,3 +115,11 @@ export type HighlightEditorProps = {
   suggested: Rect | null;
   onChange: (rect: Rect | null) => void;
 };
+
+/** DOM id of a step card's "Step N" heading (1-based, display order).
+ *  StepCard renders it (tabIndex -1); FramePicker falls back to focusing it
+ *  when the element that opened the picker is gone after confirm (e.g. the
+ *  capture-failed placeholder's "Pick frame" button). D13. */
+export function stepHeadingDomId(stepNumber: number): string {
+  return `step-${stepNumber}-heading`;
+}
