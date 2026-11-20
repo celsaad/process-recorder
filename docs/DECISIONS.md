@@ -94,6 +94,13 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 **Why stream to a temp file.** `request.blob()` would hold up to a few hundred MB in memory per request. Piping to `os.tmpdir()` keeps memory flat. The file is deleted in `finally`. *To verify in the spike:* piping `request.body` to disk in a Next 16 route handler, and `request.signal` firing when the client disconnects.
 
+**Spike results (Lane A, 2026-11-20; verified, no longer to-dos).**
+- Piping `request.body` to a temp file works in a Next 16 route handler, and NDJSON stage events reach the client incrementally.
+- `request.signal` fires on client disconnect: polling stops and the temp file is deleted.
+- Timings: the 76 MB Retina `.mov` uploaded to Gemini in 9.9 s and was `ACTIVE` at 29.6 s. A 3 MB MP4 took about 29 s end to end through the route.
+- Gemini returns **403, not 404**, for an expired or unknown file, so 403 on `files.get` maps to `file_expired`.
+- With no key, the SDK fails late with a vague credentials error, so the server checks `GEMINI_API_KEY` itself first and returns `missing_api_key`.
+
 **Server-side limits.** The client checks everything first, but client checks can be bypassed. The server rejects bodies over **500 MB** (the Files API allows 2 GB) or with a non-video `Content-Type`. The `PROCESSING` poll times out after 2 minutes.
 
 **Cancellation.** The client aborts with `AbortController`. Server handlers pass `request.signal` to the polling loop and SDK calls. This stops *our waiting*. A `generateContent` call already in flight may still be billed.
@@ -133,6 +140,8 @@ The OpenAPI subset has no tuples, so `box_2d` is a plain integer array. zod acce
 **Timestamps.** `MM:SS` only. Gemini samples video at 1 fps by default, so `MM:SS.s` would be false precision. `parseTimestamp` is a pure, unit-tested function that clamps to `[0, duration]`.
 
 **Model.** Configurable via `GEMINI_MODEL`, default **`gemini-3.8-flash`**. It is the newest non-preview Flash available to the provided key (checked with `models.list` on 2026-11-20). The first spike confirms that it handles video and structured output and accepts `video/quicktime`. `gemini-2.5-flash` is the known-good fallback. We set a **low thinking level** for latency, because this task is extraction rather than reasoning.
+
+**Spike result.** `gemini-3.8-flash` accepts video, `video/quicktime` and the response schema. Analysis of the 76 MB `.mov` took 34.6 s. `gemini-2.5-flash` wasn't needed (its thinking-budget path is coded but not run against the real API).
 
 **Not tuning sampling.** We keep the default 1 fps. Higher fps multiplies tokens and can hit free-tier tokens-per-minute limits. If steps are missed, re-picking and adding steps cover the gap.
 
@@ -262,7 +271,7 @@ Validation that can run in the browser runs there first, so obviously bad files 
 - Reordering uses **Move up / Move down buttons** on each step. Focus follows the moved step, and a status message announces "Step 3 moved to position 2". This meets WCAG 2.5.7 without drag. Drag-and-drop (dnd-kit) is a stretch goal.
 - At the ends, Move up/down are **`aria-disabled`, not `disabled`**. A natively disabled button drops focus to `<body>` the moment a step reaches the top, which breaks "focus stays on the button".
 - **No custom keyboard shortcuts inside steps.** In a macOS textarea, ⌘↑/↓, ⌘⌫ and ⌘Z already mean caret-to-start/end, delete-to-line-start and native undo. Overriding them would break text editing. Tab order plus labelled buttons are the keyboard flow.
-- Delete leaves an **inline row where the card was: "Step 3 deleted · Undo · Dismiss"**. It stays until dismissed or until the next delete (WCAG 2.2.1 forbids a short timer). Focus moves to the next step, or to the previous one if the last step was deleted, so Undo is one Shift+Tab away. *Revised after the design review:* a floating toast sits last in the DOM, which at 20 steps put Undo dozens of Tabs away.
+- Delete leaves an **inline row where the card was: "Step 3 deleted · Undo · Dismiss"**. It stays until dismissed or until the next delete (WCAG 2.2.1 forbids a short timer). **Focus moves to that row's Undo button**, so Undo is immediately actionable and the screen reader lands on it ("Step 3 deleted. Undo"). Tab continues to Dismiss, then the next step. Dismiss (or the next delete) removes the row, and focus moves to the next step, or the previous one if the deleted step was last. **Undo** puts the step back at its original position and moves focus to its "Step N" heading. *Revised after the design review:* a floating toast sits last in the DOM, which at 20 steps put Undo dozens of Tabs away.
 - "Add step" inserts after the current step at its timestamp + 1 s and captures that frame as a starting point.
 - Each step shows its timestamp as a button that opens the frame picker at that moment.
 - Highlights are edited **in place in the card**. Add / Remove / Reset-to-suggestion sit in the card's action row (D9).

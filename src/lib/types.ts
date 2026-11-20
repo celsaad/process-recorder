@@ -106,6 +106,9 @@ export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export type Recorder = {
   job: JobState;
+  /** The current project. Between probe and the end of analysis this is an
+   *  in-memory draft (never persisted) so JobProgress can show VideoInfo;
+   *  the page only renders the editor from it in `ready` or `running/capturing`. */
   project: Project | null;
   steps: StepsState;
   dispatch: (a: StepsAction) => void;

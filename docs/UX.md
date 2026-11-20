@@ -12,7 +12,7 @@
 | **Analyzing** | Same stage list | Status: "Analyzing steps" |
 | **Capturing** | Step cards render immediately with skeleton screenshots that fill in one by one ("Screenshots 3/12") | Status: "Capturing screenshots". Focus stays put |
 | **Ready** | Editor: title, step cards, Export button, save indicator | Focus moves to the results heading **after** capture ends. Status: "12 steps ready" |
-| **No steps** | Explanation + "Add a step manually" | Focus on the message heading |
+| **No steps** | Explanation + "Add a step manually" | Focus on the results heading (the process title), same as Ready. Status: "No steps found. Add a step manually." |
 | **Error** | Error panel: cause, what to do, primary action (see DECISIONS D10) | Focus on the panel heading (no `role="alert"`, to avoid double announcements) |
 | **Storage full** | Persistent banner: "Changes won't survive a refresh. Export now." | Status message |
 | **Cancelled** | Back to the dropzone | Status: "Cancelled" |
@@ -39,7 +39,7 @@ There are deliberately **no custom shortcuts inside step cards**. The fields are
 | Page | `Tab` / `Shift+Tab` | Header → dropzone or step list → Export |
 | Step card | `Tab` | Timestamp → Action → Description → Expected result → Highlight (when present) → Pick frame → Add/Remove highlight → Reset (when suggested) → Move up → Move down → Delete |
 | Move up / down | `Enter` / `Space` | Moves the step. Focus stays on the same button, now in its new position. Status: "Step moved to position 2" |
-| Delete | `Enter` / `Space` | An inline "Step N deleted · Undo · Dismiss" row replaces the card. Focus moves to the next step (the previous one if it was last), so Undo is one `Shift+Tab` away |
+| Delete | `Enter` / `Space` | An inline "Step N deleted · Undo · Dismiss" row replaces the card, and **focus moves to its Undo button**. `Tab` continues to Dismiss, then the next step. After Dismiss, focus goes to the next step (the previous one if it was last) |
 | Move up / down at the ends | `Enter` / `Space` | No-op: the button is `aria-disabled`, not `disabled`, so it keeps focus |
 | Frame picker (dialog) | `←` / `→` on the slider | ±0.1 s (`Shift` = ±1 s) |
 | Frame picker | `Enter` on the slider / `Esc` | Use this frame / cancel (focus returns to the trigger). `Enter` on a ± button only steps |
