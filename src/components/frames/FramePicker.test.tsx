@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { axe } from "vitest-axe";
@@ -11,7 +11,11 @@ import { FramePicker } from "./FramePicker";
 const captureFromVideo = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/frames", () => ({ captureFromVideo }));
 
+// jsdom never decodes video; tests flip this to simulate "frame ready" (4) or "still loading" (0).
+let readyState = 4;
+
 beforeAll(() => {
+  Object.defineProperty(HTMLMediaElement.prototype, "readyState", { configurable: true, get: () => readyState });
   // Radix's slider measures its thumb with ResizeObserver, which jsdom lacks.
   vi.stubGlobal(
     "ResizeObserver",
@@ -24,6 +28,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  readyState = 4;
   cleanup();
   captureFromVideo.mockReset();
 });
@@ -33,16 +38,30 @@ const shot = new Blob(["frame"], { type: "image/webp" });
 function Harness({
   onConfirm = vi.fn(),
   onCancel = vi.fn(),
+  removeOpenerOnOpen = false,
 }: {
   onConfirm?: (sec: number, shot: Blob) => void | Promise<void>;
   onCancel?: () => void;
+  removeOpenerOnOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [openerGone, setOpenerGone] = useState(false);
   return (
     <LiveRegionProvider>
-      <button type="button" onClick={() => setOpen(true)}>
-        Pick frame for step 3
-      </button>
+      <h3 id="step-3-heading" tabIndex={-1}>
+        Step 3
+      </h3>
+      {!openerGone && (
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(true);
+            if (removeOpenerOnOpen) setOpenerGone(true);
+          }}
+        >
+          Pick frame for step 3
+        </button>
+      )}
       <FramePicker
         open={open}
         videoUrl="blob:video"
@@ -92,7 +111,7 @@ describe("FramePicker", () => {
 
   it("marks the original timestamp, offset for the thumb inset", async () => {
     await openPicker();
-    expect(screen.getByText("Original 0:19.0")).toBeInTheDocument();
+    expect(screen.getByText("Original 0:19")).toBeInTheDocument();
     const marker = screen.getByTestId("original-marker");
     // jsdom folds the calc: 11px + (100% - 22px) * p  =>  p*100 % + (11 - 22p) px
     const p = 19 / 326;
@@ -167,5 +186,75 @@ describe("FramePicker", () => {
   it("has no axe violations", async () => {
     await openPicker();
     expect(await axe(screen.getByRole("dialog"))).toHaveNoViolations();
+  });
+
+  it("Esc and outside clicks are ignored while a capture is in flight, and the capture still commits once", async () => {
+    let finish!: (b: Blob) => void;
+    captureFromVideo.mockReturnValue(new Promise<Blob>((r) => (finish = r)));
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onConfirm={onConfirm} onCancel={onCancel} />);
+    await user.click(screen.getByRole("button", { name: "Pick frame for step 3" }));
+    await screen.findByRole("slider");
+    await user.keyboard("{Enter}");
+    await user.keyboard("{Escape}");
+    fireEvent.pointerDown(document.querySelector("[data-slot=dialog-overlay]")!);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await act(async () => finish(shot));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+  });
+
+  it("never confirms after the dialog was unmounted mid-capture", async () => {
+    let finish!: (b: Blob) => void;
+    captureFromVideo.mockReturnValue(new Promise<Blob>((r) => (finish = r)));
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = render(<Harness onConfirm={onConfirm} />);
+    await user.click(screen.getByRole("button", { name: "Pick frame for step 3" }));
+    await screen.findByRole("slider");
+    await user.keyboard("{Enter}");
+    unmount();
+    await act(async () => finish(shot));
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("Enter before the first frame is decoded waits for loadeddata instead of failing", async () => {
+    readyState = 0;
+    captureFromVideo.mockResolvedValue(shot);
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onConfirm={onConfirm} />);
+    await user.click(screen.getByRole("button", { name: "Pick frame for step 3" }));
+    await screen.findByRole("slider");
+    await user.keyboard("{Enter}");
+    expect(captureFromVideo).not.toHaveBeenCalled();
+    readyState = 4;
+    fireEvent(screen.getByLabelText(/Video frame at/), new Event("loadeddata"));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(19, shot));
+  });
+
+  it("returns focus to the opener after a confirm", async () => {
+    captureFromVideo.mockResolvedValue(shot);
+    const user = userEvent.setup();
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Pick frame for step 3" });
+    await user.click(trigger);
+    await screen.findByRole("slider");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("falls back to the step heading when the opener is gone", async () => {
+    captureFromVideo.mockResolvedValue(shot);
+    const user = userEvent.setup();
+    render(<Harness removeOpenerOnOpen />);
+    await user.click(screen.getByRole("button", { name: "Pick frame for step 3" }));
+    await screen.findByRole("slider");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(document.getElementById("step-3-heading")).toHaveFocus());
   });
 });

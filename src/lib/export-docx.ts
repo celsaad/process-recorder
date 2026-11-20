@@ -120,8 +120,13 @@ export async function buildDocx(project: Project, steps: Step[], getShot: GetSho
   const images: (ExportImage | null)[] = [];
   // One at a time: each export render holds a full-size bitmap and canvas.
   for (const step of steps) {
-    const shot = step.captureState === "failed" ? null : await getShot(step.id);
-    images.push(shot ? await renderForExport(shot, step.highlight) : null);
+    try {
+      const shot = step.captureState === "failed" ? null : await getShot(step.id);
+      images.push(shot ? await renderForExport(shot, step.highlight) : null);
+    } catch {
+      // One unreadable or corrupt shot must not fail the whole export; it gets the placeholder cell.
+      images.push(null);
+    }
   }
   const rows = mapRows(steps, images);
 

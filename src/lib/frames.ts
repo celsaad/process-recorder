@@ -12,6 +12,8 @@ export type FrameGrabber = {
 };
 
 const METADATA_TIMEOUT_MS = 8000;
+/** QuickTime reports a real 10:00 recording as ~600.03 s; don't reject it as too long. */
+const DURATION_TOLERANCE_SEC = 0.5;
 const SEEK_TIMEOUT_MS = 5000;
 /** If `requestVideoFrameCallback` never fires after a seek, draw anyway after this long. */
 const FRAME_CALLBACK_FALLBACK_MS = 500;
@@ -40,17 +42,36 @@ export function validateFile(file: File): void {
   if (file.size > MAX_BYTES) throw new AppError("too_large", formatBytes(file.size));
 }
 
-/** Resolves on the first of `events`; rejects with `onTimeout`/`onError` otherwise. */
+/**
+ * Resolves on the first of `events`. Rejects with `onTimeout` on timeout, `onError` (default
+ * `onTimeout`) on an `error` event, and `cancelled` as soon as any of `signals` aborts.
+ * Always removes its listeners, so nothing is left to reject later.
+ */
 function waitFor(
   target: EventTarget,
   events: string[],
-  { timeoutMs, onTimeout, errorEvent = "error", onError }: { timeoutMs: number; onTimeout: () => Error; errorEvent?: string; onError?: () => Error },
+  {
+    timeoutMs,
+    onTimeout,
+    errorEvent = "error",
+    onError,
+    signals = [],
+  }: {
+    timeoutMs: number;
+    onTimeout: () => Error;
+    errorEvent?: string;
+    onError?: () => Error;
+    signals?: (AbortSignal | undefined)[];
+  },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    const live = signals.filter((s): s is AbortSignal => s !== undefined);
+    if (live.some((s) => s.aborted)) return reject(new AppError("cancelled"));
     const cleanup = () => {
       clearTimeout(timer);
       for (const e of events) target.removeEventListener(e, onEvent);
       target.removeEventListener(errorEvent, onFail);
+      for (const s of live) s.removeEventListener("abort", onAbort);
     };
     const onEvent = () => {
       cleanup();
@@ -60,12 +81,17 @@ function waitFor(
       cleanup();
       reject(onError ? onError() : onTimeout());
     };
+    const onAbort = () => {
+      cleanup();
+      reject(new AppError("cancelled"));
+    };
     const timer = setTimeout(() => {
       cleanup();
       reject(onTimeout());
     }, timeoutMs);
     for (const e of events) target.addEventListener(e, onEvent);
     target.addEventListener(errorEvent, onFail);
+    for (const s of live) s.addEventListener("abort", onAbort);
   });
 }
 
@@ -84,10 +110,15 @@ export async function resolveDuration(video: DurationSource, timeoutMs = METADAT
           resolve();
         }
       };
+      const fail = () => {
+        cleanup();
+        reject(new AppError("undecodable"));
+      };
       const cleanup = () => {
         clearTimeout(timer);
         video.removeEventListener("durationchange", check);
         video.removeEventListener("timeupdate", check);
+        video.removeEventListener("error", fail);
       };
       const timer = setTimeout(() => {
         cleanup();
@@ -95,6 +126,7 @@ export async function resolveDuration(video: DurationSource, timeoutMs = METADAT
       }, timeoutMs);
       video.addEventListener("durationchange", check);
       video.addEventListener("timeupdate", check);
+      video.addEventListener("error", fail);
       video.currentTime = 1e101;
     });
     await resolved;
@@ -133,7 +165,7 @@ export async function probeVideo(file: File, options: { timeoutMs?: number } = {
     });
     if (!video.videoWidth || !video.videoHeight) throw new AppError("undecodable");
     const durationSec = await resolveDuration(video, timeoutMs);
-    if (durationSec > MAX_DURATION_SEC) throw new AppError("too_long", formatTimestamp(durationSec));
+    if (durationSec > MAX_DURATION_SEC + DURATION_TOLERANCE_SEC) throw new AppError("too_long", formatTimestamp(durationSec));
     return {
       name: file.name,
       sizeBytes: file.size,
@@ -185,17 +217,17 @@ function nextPresentedFrame(video: HTMLVideoElement): Promise<void> {
   });
 }
 
-async function seekTo(video: HTMLVideoElement, sec: number, signal?: AbortSignal): Promise<void> {
+async function seekTo(video: HTMLVideoElement, sec: number, signals: (AbortSignal | undefined)[]): Promise<void> {
   // Setting currentTime to its current value never fires `seeked`, so skip the wait (D3).
   if (!video.seeking && Math.abs(video.currentTime - sec) < 0.001 && video.readyState >= 2) return;
   const seeked = waitFor(video, ["seeked"], {
     timeoutMs: SEEK_TIMEOUT_MS,
     onTimeout: () => new AppError("capture_failed"),
     onError: () => new AppError("capture_failed"),
+    signals,
   });
   const frame = nextPresentedFrame(video);
   video.currentTime = sec;
-  signal?.throwIfAborted();
   await seeked;
   await frame;
 }
@@ -203,9 +235,9 @@ async function seekTo(video: HTMLVideoElement, sec: number, signal?: AbortSignal
 export function createFrameGrabber(blob: Blob): FrameGrabber {
   const url = URL.createObjectURL(blob);
   const video = createVideoElement(url, "auto");
+  const lifetime = new AbortController();
   let ready: Promise<void> | null = null;
   let queue: Promise<unknown> = Promise.resolve();
-  let disposed = false;
 
   const load = () =>
     (ready ??=
@@ -215,15 +247,19 @@ export function createFrameGrabber(blob: Blob): FrameGrabber {
             timeoutMs: METADATA_TIMEOUT_MS,
             onTimeout: () => new AppError("undecodable"),
             onError: () => new AppError("undecodable"),
+            signals: [lifetime.signal],
           }));
 
   const run = async (sec: number, signal?: AbortSignal): Promise<Blob> => {
-    if (disposed) throw new AppError("cancelled");
-    if (signal?.aborted) throw new AppError("cancelled");
+    const signals = [signal, lifetime.signal];
+    const check = () => {
+      if (signals.some((s) => s?.aborted)) throw new AppError("cancelled");
+    };
+    check();
     await load();
-    if (disposed || signal?.aborted) throw new AppError("cancelled");
-    await seekTo(video, Math.max(0, sec), signal);
-    if (disposed || signal?.aborted) throw new AppError("cancelled");
+    check();
+    await seekTo(video, Math.max(0, sec), signals);
+    check();
     return encodeFrame(drawFrame(video));
   };
 
@@ -235,8 +271,9 @@ export function createFrameGrabber(blob: Blob): FrameGrabber {
       return result;
     },
     dispose() {
-      if (disposed) return;
-      disposed = true;
+      if (lifetime.signal.aborted) return;
+      // Pending waits reject with `cancelled` straight away, before the element is torn down.
+      lifetime.abort();
       releaseVideo(video, url);
     },
   };

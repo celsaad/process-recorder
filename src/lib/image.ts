@@ -72,6 +72,11 @@ export async function renderForExport(shot: Blob, highlight: Rect | null): Promi
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0);
     if (highlight) burnInHighlight(ctx, rectToPixels(highlight, canvas.width, canvas.height), canvas.width, canvas.height);
+    // 1 px frame at the 258 px display size, like the board's #9CA3AF screenshot border.
+    const frame = Math.max(1, Math.round(canvas.width / 258));
+    ctx.strokeStyle = "#9CA3AF";
+    ctx.lineWidth = frame;
+    ctx.strokeRect(frame / 2, frame / 2, canvas.width - frame, canvas.height - frame);
     const blob = await toBlob(canvas, "image/jpeg", 0.92);
     if (!blob) throw new AppError("capture_failed");
     return { bytes: new Uint8Array(await blob.arrayBuffer()), width: canvas.width, height: canvas.height };
@@ -108,7 +113,7 @@ function burnInHighlight(ctx: CanvasRenderingContext2D, r: Rect, width: number, 
   ctx.strokeStyle = HIGHLIGHT_COLOR;
   ctx.lineWidth = s;
   ctx.beginPath();
-  outline(ctx, edge, radius);
+  outline(ctx, edge, Math.max(0, radius - s / 2));
   ctx.stroke();
   ctx.restore();
 }

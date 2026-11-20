@@ -12,14 +12,15 @@ import {
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { useAnnounce } from "@/components/shell/LiveRegion";
-import { toAppError } from "@/lib/errors";
+import { AppError, toAppError } from "@/lib/errors";
 import { captureFromVideo } from "@/lib/frames";
 import { formatTimestamp } from "@/lib/timestamp";
-import type { FramePickerProps } from "@/lib/ui-contracts";
+import { stepHeadingDomId, type FramePickerProps } from "@/lib/ui-contracts";
 
 /** Slider thumb diameter in px (the shadcn thumb is overridden below). The marker offset depends on it. */
 const THUMB_PX = 22;
 const SEEK_SETTLE_TIMEOUT_MS = 3000;
+const LOAD_TIMEOUT_MS = 8000;
 
 const roundTenth = (v: number) => Math.round(v * 10) / 10;
 
@@ -54,6 +55,14 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
   const [failed, setFailed] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  // False once the dialog is gone: a capture still in flight must never commit after that.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const sliderWrapRef = useRef<HTMLDivElement | null>(null);
   // The dialog content mounts after this component, so the wrapper's arrival must trigger a render.
   const [, setSliderWrap] = useState<HTMLDivElement | null>(null);
@@ -102,8 +111,10 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
     setFailed(false);
     try {
       // Let the newest seek land before drawing, or the screenshot would show an older frame.
+      await waitForLoaded(video, LOAD_TIMEOUT_MS);
       await waitForSeek(video, pendingSeek, SEEK_SETTLE_TIMEOUT_MS);
       const shot = await captureFromVideo(video);
+      if (!alive.current) return;
       await onConfirm(sec, shot);
     } catch (e) {
       const err = toAppError(e);
@@ -131,7 +142,12 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
       onCloseAutoFocus={(e) => {
         e.preventDefault();
         if (opener?.isConnected) opener.focus();
+        // The opener can be gone (e.g. a failed-capture placeholder becomes an image): use the step heading.
+        else document.getElementById(stepHeadingDomId(stepNumber))?.focus();
       }}
+      // An in-flight capture can't be cancelled; ignore dismissals until it settles.
+      onEscapeKeyDown={(e) => busy && e.preventDefault()}
+      onInteractOutside={(e) => busy && e.preventDefault()}
       onOpenAutoFocus={(e) => {
         e.preventDefault();
         sliderWrapRef.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
@@ -186,7 +202,7 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
               className="absolute top-0 -translate-x-1/2 rounded bg-foreground px-1.5 text-xs leading-[18px] font-semibold whitespace-nowrap text-background tabular-nums"
               style={{ left: markerLeft }}
             >
-              Original {formatTimestamp(initialSec, 1)}
+              Original {formatTimestamp(initialSec)}
             </span>
           </div>
         </div>
@@ -288,5 +304,28 @@ function waitForSeek(video: HTMLVideoElement, pending: { current: number | null 
       resolve();
     }, timeoutMs);
     video.addEventListener("seeked", done);
+  });
+}
+
+/** Resolves once the first frame is decoded, so an early Enter doesn't fail the capture. */
+function waitForLoaded(video: HTMLVideoElement, timeoutMs: number): Promise<void> {
+  if (video.readyState >= 2) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      video.removeEventListener("loadeddata", onLoaded);
+      video.removeEventListener("error", onFail);
+    };
+    const onLoaded = () => {
+      cleanup();
+      resolve();
+    };
+    const onFail = () => {
+      cleanup();
+      reject(new AppError("capture_failed"));
+    };
+    const timer = setTimeout(onFail, timeoutMs);
+    video.addEventListener("loadeddata", onLoaded);
+    video.addEventListener("error", onFail);
   });
 }
