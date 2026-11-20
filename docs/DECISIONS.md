@@ -221,7 +221,7 @@ A "Saving… / Saved" indicator sits in the header.
 **Accessibility.** The rectangle is a focusable element named "Highlight on step 3 screenshot". Arrows move it, `Shift` + arrows move it 10×, `Alt` + arrows resize it, and Delete removes it. Explicit buttons ("Remove highlight", "Add highlight") give a non-drag alternative.
 
 **Planned: expand the screenshot to place the highlight precisely.** In the card, screenshots are capped at 320 px tall (D12), so a full-HD frame is shown at about a quarter of its size. Small targets (a checkbox, a narrow field, one menu item) are hard to box accurately there, and the highlight is burned into the Word export at full resolution, so an imprecise box is visible to the client. Add an **"Expand"** button on each screenshot that opens a large view (a dialog sized to the viewport, the frame at up to 100%) with the same `HighlightEditor`:
-- the same pointer and keyboard controls, at a finer step (arrow keys move 1% of the frame, so the larger view gives sub-pixel precision in the card);
+- the same pointer and keyboard controls. Dragging gets about 4× more precise simply because the frame is bigger; arrow keys use a finer step there (e.g. 0.25% of the frame instead of 1%), since the keyboard step is relative to the frame, not the view;
 - Done or Esc returns to the card with focus back on "Expand";
 - no data change: highlights are already stored as normalized coordinates (0–1), so the same rectangle works at any display size.
 
