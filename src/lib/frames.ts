@@ -15,7 +15,8 @@ const METADATA_TIMEOUT_MS = 8000;
 /** QuickTime reports a real 10:00 recording as ~600.03 s; don't reject it as too long. */
 const DURATION_TOLERANCE_SEC = 0.5;
 const SEEK_TIMEOUT_MS = 5000;
-/** If `requestVideoFrameCallback` never fires after a seek, draw anyway after this long. */
+/** If `requestVideoFrameCallback` never fires after a seek, draw anyway after this long.
+ *  Measured 16–51 ms after a seek in Chromium (headless/headed, detached paused video) on the samples; the fallback is only a safety net. */
 const FRAME_CALLBACK_FALLBACK_MS = 500;
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -180,9 +181,9 @@ export async function probeVideo(file: File, options: { timeoutMs?: number } = {
 }
 
 /** Waits for an in-flight seek, if any. */
-async function settle(video: HTMLVideoElement, timeoutMs: number): Promise<void> {
+async function settle(video: HTMLVideoElement, timeoutMs: number, signal?: AbortSignal): Promise<void> {
   if (!video.seeking) return;
-  await waitFor(video, ["seeked"], { timeoutMs, onTimeout: () => new AppError("capture_failed") });
+  await waitFor(video, ["seeked"], { timeoutMs, onTimeout: () => new AppError("capture_failed"), signals: [signal] });
 }
 
 function drawFrame(video: HTMLVideoElement): HTMLCanvasElement {
@@ -199,26 +200,36 @@ function drawFrame(video: HTMLVideoElement): HTMLCanvasElement {
   return canvas;
 }
 
-/** Captures the frame currently shown by a (visible) video element. */
-export async function captureFromVideo(video: HTMLVideoElement): Promise<Blob> {
-  await settle(video, SEEK_TIMEOUT_MS);
+/** Captures the frame currently shown by a (visible) video element. `signal` → `cancelled`. */
+export async function captureFromVideo(video: HTMLVideoElement, options: { signal?: AbortSignal } = {}): Promise<Blob> {
+  const { signal } = options;
+  await settle(video, SEEK_TIMEOUT_MS, signal);
   // Right after a seek lands, Chrome can still report HAVE_METADATA (readyState 1)
   // until the frame is decoded. Wait for the data instead of failing the capture.
-  await waitForFrameData(video, SEEK_TIMEOUT_MS);
+  await waitForFrameData(video, SEEK_TIMEOUT_MS, { signal });
+  if (signal?.aborted) throw new AppError("cancelled");
   return encodeFrame(drawFrame(video));
 }
 
 /** Resolves once the element has decoded data for the current position (readyState >= 2)
  *  and isn't seeking. Polls the condition: `loadeddata` fires only once per load, and
  *  readiness events after a seek aren't reliable across engines. Rejects `capture_failed`
- *  on a media error or timeout. */
-export function waitForFrameData(video: HTMLVideoElement, timeoutMs: number, pollMs = 30): Promise<void> {
+ *  on a media error or timeout, and `cancelled` (stopping the poll) when `signal` aborts. */
+export function waitForFrameData(
+  video: HTMLVideoElement,
+  timeoutMs: number,
+  { pollMs = 30, signal }: { pollMs?: number; signal?: AbortSignal } = {},
+): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new AppError("cancelled"));
   const ready = () => video.readyState >= 2 && !video.seeking;
   if (ready()) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const started = Date.now();
     const timer = setInterval(() => {
-      if (video.error) {
+      if (signal?.aborted) {
+        clearInterval(timer);
+        reject(new AppError("cancelled"));
+      } else if (video.error) {
         clearInterval(timer);
         reject(new AppError("capture_failed"));
       } else if (ready()) {
@@ -232,31 +243,64 @@ export function waitForFrameData(video: HTMLVideoElement, timeoutMs: number, pol
   });
 }
 
-/** After a seek, waits until the new frame is actually presented (so the canvas isn't one frame stale). */
-function nextPresentedFrame(video: HTMLVideoElement): Promise<void> {
-  if (typeof video.requestVideoFrameCallback !== "function") return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, FRAME_CALLBACK_FALLBACK_MS);
-    video.requestVideoFrameCallback(() => {
+/**
+ * After a seek, waits until the new frame is actually presented (so the canvas isn't one frame stale).
+ * `cancel` (and the fallback timeout) drop the callback, so one that never fired can't linger.
+ */
+function nextPresentedFrame(video: HTMLVideoElement): { done: Promise<void>; cancel: () => void } {
+  if (typeof video.requestVideoFrameCallback !== "function") return { done: Promise.resolve(), cancel: () => {} };
+  let cancel = () => {};
+  const done = new Promise<void>((resolve) => {
+    const handle = video.requestVideoFrameCallback(() => {
       clearTimeout(timer);
       resolve();
     });
+    const drop = () => {
+      clearTimeout(timer);
+      video.cancelVideoFrameCallback?.(handle);
+      resolve();
+    };
+    const timer = setTimeout(drop, FRAME_CALLBACK_FALLBACK_MS);
+    cancel = drop;
   });
+  return { done, cancel };
 }
 
-async function seekTo(video: HTMLVideoElement, sec: number, signals: (AbortSignal | undefined)[]): Promise<void> {
-  // Setting currentTime to its current value never fires `seeked`, so skip the wait (D3).
-  if (!video.seeking && Math.abs(video.currentTime - sec) < 0.001 && video.readyState >= 2) return;
-  const seeked = waitFor(video, ["seeked"], {
+const seekWait = (video: HTMLVideoElement, signals: (AbortSignal | undefined)[]) =>
+  waitFor(video, ["seeked"], {
     timeoutMs: SEEK_TIMEOUT_MS,
     onTimeout: () => new AppError("capture_failed"),
     onError: () => new AppError("capture_failed"),
     signals,
   });
+
+async function seekTo(video: HTMLVideoElement, sec: number, signals: (AbortSignal | undefined)[]): Promise<void> {
+  // A capture aborted mid-seek leaves the element seeking. Let that seek land first, or its
+  // `seeked` would satisfy the wait below and the canvas would get the old frame.
+  if (video.seeking) await seekWait(video, signals);
+  // Setting currentTime to its current value never fires `seeked`, so skip the wait (D3).
+  if (Math.abs(video.currentTime - sec) < 0.001 && video.readyState >= 2) return;
+  const seeked = seekWait(video, signals);
   const frame = nextPresentedFrame(video);
   video.currentTime = sec;
-  await seeked;
-  await frame;
+  try {
+    await seeked;
+  } catch (e) {
+    frame.cancel();
+    throw e;
+  }
+  await frame.done;
+}
+
+/** Rejects with `cancelled` as soon as `signal` aborts, without cancelling `promise` itself. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new AppError("cancelled"));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new AppError("cancelled"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 export function createFrameGrabber(blob: Blob): FrameGrabber {
@@ -266,16 +310,24 @@ export function createFrameGrabber(blob: Blob): FrameGrabber {
   let ready: Promise<void> | null = null;
   let queue: Promise<unknown> = Promise.resolve();
 
-  const load = () =>
-    (ready ??=
-      video.readyState >= 2
-        ? Promise.resolve()
-        : waitFor(video, ["loadeddata"], {
-            timeoutMs: METADATA_TIMEOUT_MS,
-            onTimeout: () => new AppError("undecodable"),
-            onError: () => new AppError("undecodable"),
-            signals: [lifetime.signal],
-          }));
+  // The load is shared by every capture, so it ends only with the grabber. Each capture races it
+  // against its own signal, so an aborted capture doesn't wait out the 8 s load timeout.
+  const load = (signal: AbortSignal | undefined) => {
+    if (!ready) {
+      ready =
+        video.readyState >= 2
+          ? Promise.resolve()
+          : waitFor(video, ["loadeddata"], {
+              timeoutMs: METADATA_TIMEOUT_MS,
+              onTimeout: () => new AppError("undecodable"),
+              onError: () => new AppError("undecodable"),
+              signals: [lifetime.signal],
+            });
+      // If every capture stopped waiting, a later rejection must not go unhandled.
+      ready.catch(() => undefined);
+    }
+    return untilAborted(ready, signal);
+  };
 
   const run = async (sec: number, signal?: AbortSignal): Promise<Blob> => {
     const signals = [signal, lifetime.signal];
@@ -283,7 +335,7 @@ export function createFrameGrabber(blob: Blob): FrameGrabber {
       if (signals.some((s) => s?.aborted)) throw new AppError("cancelled");
     };
     check();
-    await load();
+    await load(signal);
     check();
     await seekTo(video, Math.max(0, sec), signals);
     check();

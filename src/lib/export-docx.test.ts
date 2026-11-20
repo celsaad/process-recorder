@@ -1,3 +1,4 @@
+import { inflateRawSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import { fixtureProject, fixtureSteps } from "@/fixtures/project";
 import { buildDocx, exportFilename, mapRows, NO_SHOT_TEXT } from "./export-docx";
@@ -56,4 +57,59 @@ describe("buildDocx", () => {
     expect(Array.from(head)).toEqual([0x50, 0x4b]); // "PK"
     expect(getShot).not.toHaveBeenCalledWith("step-4");
   });
+
+  it("lays out a landscape page with a 5-column table: header + one row per step, placeholders for missing shots", async () => {
+    const steps = fixtureSteps.map((s, i) => (i === 3 ? { ...s, captureState: "failed" as const } : s));
+    const getShot = async (id: string) => (id === "step-2" ? null : new Blob(["x"], { type: "image/webp" }));
+    const blob = await buildDocx(fixtureProject, steps, getShot);
+    const xml = unzip(new Uint8Array(await blob.arrayBuffer()))["word/document.xml"];
+    expect(xml).toBeDefined();
+
+    const pgSz = /<w:pgSz [^>]*\/>/.exec(xml)?.[0] ?? "";
+    expect(pgSz).toContain('w:orient="landscape"');
+    const [w, h] = [/w:w="(\d+)"/, /w:h="(\d+)"/].map((re) => Number(re.exec(pgSz)?.[1]));
+    expect(w).toBeGreaterThan(h);
+
+    const grid = /<w:tblGrid>([^]*?)<\/w:tblGrid>/.exec(xml)?.[1] ?? "";
+    expect(grid.match(/<w:gridCol\b/g)).toHaveLength(5);
+
+    const rows = xml.split(/<w:tr[\s>]/).slice(1);
+    expect(rows).toHaveLength(steps.length + 1);
+    expect(rows[0]).toContain("<w:tblHeader");
+    for (const header of ["#", "Action","Description", "Expected result", "Screenshot"]) expect(rows[0]).toContain(`>${header}<`);
+    const xmlText = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+    rows.slice(1).forEach((row, i) => expect(row).toContain(`>${xmlText(steps[i].action)}<`));
+
+    // step-2 has no stored shot and step-4 failed: placeholders. The other two get images.
+    const withPlaceholder = rows.slice(1).map((row) => row.includes(`>${NO_SHOT_TEXT}<`));
+    expect(withPlaceholder).toEqual([false, true, false, true]);
+    expect(rows.slice(1).map((row) => row.includes("<w:drawing>"))).toEqual([true, false, true, false]);
+  });
 });
+
+/** Minimal zip reader (stored + deflate) over the central directory, enough for a docx. */
+function unzip(zip: Uint8Array): Record<string, string> {
+  const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+  let eocd = zip.length - 22;
+  while (eocd >= 0 && view.getUint32(eocd, true) !== 0x06054b50) eocd--;
+  if (eocd < 0) throw new Error("not a zip");
+  const count = view.getUint16(eocd + 10, true);
+  let p = view.getUint32(eocd + 16, true);
+  const out: Record<string, string> = {};
+  for (let i = 0; i < count; i++) {
+    if (view.getUint32(p, true) !== 0x02014b50) throw new Error("bad central directory");
+    const method = view.getUint16(p + 10, true);
+    const size = view.getUint32(p + 20, true);
+    const nameLen = view.getUint16(p + 28, true);
+    const extraLen = view.getUint16(p + 30, true);
+    const commentLen = view.getUint16(p + 32, true);
+    const local = view.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(zip.subarray(p + 46, p + 46 + nameLen));
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    const raw = zip.subarray(start, start + size);
+    const data = method === 0 ? raw : method === 8 ? inflateRawSync(raw) : null;
+    if (data) out[name] = new TextDecoder().decode(data);
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
