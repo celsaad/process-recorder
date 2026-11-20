@@ -23,7 +23,7 @@ Phase 0 ──► ┌ A  Server + Gemini (+ spike) ─┐
 
 | File | Length | Resolution | Use |
 |---|---|---|---|
-| `po-to-gr-compressed.mp4` | 1:48 | 1296×720, 3 MB | **E2E fixture** (small, fast) |
+| `po-to-gr-compressed.mp4` | 1:48 | 1296×720, 3 MB | Small and fast: local checks, `curl` (E2E uses Lane G's generated `tiny.webm`) |
 | `j45-pr-po-si.mp4` | 2:44 | 1920×1080, 7 MB | Happy path |
 | `j45-pr.mov` | 2:25 | 3456×1990, 76 MB | QuickTime `.mov`, Retina (tests the 1920 px cap and large uploads) |
 | `oracle-fusion-pr-to-po.mp4` | 3:33 | 1920×1080, 9 MB | Over 3:00: **long-video notice** (D16) |
@@ -335,14 +335,14 @@ Written in parallel **against UX.md and the demo script, not against code**. Use
 1. `playwright.config.ts`: Chromium only. `webServer` runs `pnpm build && pnpm start -p 3100` with `GEMINI_FAKE=1`. Traces kept on failure.
 2. `e2e/helpers.ts`: `useScenario(page, name)` sets the `fake-scenario` cookie, `uploadSample(page, file)`, `expectNoAxeViolations(page)` (`@axe-core/playwright`, WCAG 2.2 AA tags).
 3. Specs, in priority order:
-   - `happy-path.spec.ts`: upload `po-to-gr-compressed.mp4` → stages appear → steps with screenshots → edit a field → Export → a `.docx` download event with the right filename.
+   - `happy-path.spec.ts`: upload `e2e/fixtures/tiny.webm` → stages appear → steps with screenshots → edit a field → Export → a `.docx` download event with the right filename.
    - `errors.spec.ts`: a PDF is rejected as `unsupported_type` before upload. The `rate_limited` scenario → Retry does **not** re-upload (assert no second `/api/upload` request). Also `not_screen_recording` and `no_steps` → the NoSteps UI.
    - `persistence.spec.ts`: edit → wait for "Saved" → reload → the edit and screenshots are still there. Start new → confirm → empty state.
    - `keyboard.spec.ts`: the whole flow with the keyboard only: choose the file via the dropzone button, move a step, delete it and Undo, open the frame picker and step with the arrow keys, Enter to confirm. Assert focus lands on the results heading after capture.
    - `a11y.spec.ts`: axe scans on the empty, processing (the `slow` scenario), ready, error and frame-picker-open states.
    - `cancel.spec.ts`: the `slow` scenario → Cancel → back to the empty state, with the "Cancelled" announcement in the live region.
    - `live.spec.ts`, tagged `@live` and **skipped unless `GEMINI_LIVE=1`**: one real Gemini run on `j45-pr-po-si.mp4` that asserts at least 3 steps, all with timestamps inside the video. Run manually, never in CI.
-4. `.github/workflows/ci.yml`: on push/PR: `pnpm install --frozen-lockfile` → `pnpm check` → install Playwright chromium → `pnpm test:e2e` (fake Gemini, no secrets needed). The E2E sample video isn't in git, so CI copies a tiny committed clip instead: `e2e/fixtures/tiny.mp4` (≤1 MB, cut from the sample in Phase 0 with `ffmpeg` if it's installed; otherwise CI runs `pnpm check` only).
+4. `.github/workflows/ci.yml`: on push/PR: `pnpm install --frozen-lockfile` → `pnpm check` → install Playwright chromium → `pnpm test:e2e` (fake Gemini, no secrets needed). The sample videos aren't in git (and shouldn't be: they're the interviewer's material). Instead, Lane G **generates its own fixture**: `e2e/generate-fixture.ts` uses Playwright's `recordVideo` to record a scripted fictional form being filled in (about 20 s, WebM/VP8, which Chromium decodes) and commits it as `e2e/fixtures/tiny.webm` (≤1 MB). The E2E specs use that clip. `po-to-gr-compressed.mp4` is used only locally and in the `@live` spec. (`ffmpeg` isn't installed, so cutting a clip from a sample wasn't an option.)
 
 ---
 
