@@ -43,6 +43,7 @@ There are deliberately **no custom shortcuts inside step cards**. The fields are
 | Move up / down at the ends | `Enter` / `Space` | No-op: the button is `aria-disabled`, not `disabled`, so it keeps focus |
 | Frame picker (dialog) | `←` / `→` on the slider | ±0.1 s (`Shift` = ±1 s) |
 | Frame picker | `Enter` on the slider / `Esc` | Use this frame / cancel (focus returns to the trigger). `Enter` on a ± button only steps |
+| Expand screenshot (planned, D9) | `Enter` / `Esc` | Opens a large view of the frame with the same highlight editor for precise placement; `Esc` or Done returns focus to "Expand" |
 | Highlight (focused, in the card) | Arrows / `Shift` + arrows / `Alt` + arrows / `Delete` | Move / move 10× / resize / remove. Instructions are read via `aria-describedby` |
 | Project title | `Enter` / `Esc` (after "Rename") | Save / cancel the new title |
 | Export options (dialog) | `Tab` | Preset select → per column: Show checkbox → Header input → Move up → Move down → Remove (blank columns) → Add blank column → Save as preset → Done. `Esc` closes; focus returns to "Export options". After Remove, focus goes to the next column (the previous one if it was last) |

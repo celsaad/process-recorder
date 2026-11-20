@@ -43,6 +43,7 @@ From [D15](DECISIONS.md#d15-scope-cuts-deliberate): Markdown/print export, drag 
 
 - **Production upload path:** direct-to-storage upload, a job queue + SSE so a closed tab doesn't kill a job (D1).
 - **Beyond export templates (D17):** per-step custom fields in the editor, then uploading a client's own .docx template and mapping fields into it.
+- **Expand the screenshot for precise highlights (D9):** the card shows frames at 320 px tall, which is too small to box a checkbox or a narrow field accurately. An "Expand" view reuses the same highlight editor at full size; highlights are normalized coordinates, so no data change.
 - **Quality loop:** let users flag wrong steps and use them as eval cases. Compare models on the example set (timestamp drift, missed steps, box accuracy).
 - **Collaboration:** projects stored server-side, share links, reviewer comments.
 
