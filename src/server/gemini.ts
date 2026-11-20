@@ -199,6 +199,11 @@ const BLOCKED_REASONS: ReadonlySet<string> = new Set([
   FinishReason.IMAGE_PROHIBITED_CONTENT,
   FinishReason.IMAGE_RECITATION,
   FinishReason.MODEL_ARMOR,
+  // Not content filters, but retrying can't succeed: escalation-filtered content,
+  // a PUP-limited account, an unsupported language.
+  FinishReason.ESCALATION,
+  FinishReason.PUP_LIMITED_DISABLED,
+  FinishReason.LANGUAGE,
   "EMPTY",
 ]);
 

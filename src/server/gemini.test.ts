@@ -63,7 +63,12 @@ describe("classifyGeminiError", () => {
     ["SPII", "gemini_blocked"],
     ["RECITATION", "gemini_blocked"],
     ["IMAGE_SAFETY", "gemini_blocked"],
+    ["IMAGE_PROHIBITED_CONTENT", "gemini_blocked"],
+    ["IMAGE_RECITATION", "gemini_blocked"],
     ["MODEL_ARMOR", "gemini_blocked"],
+    ["ESCALATION", "gemini_blocked"],
+    ["PUP_LIMITED_DISABLED", "gemini_blocked"],
+    ["LANGUAGE", "gemini_blocked"],
     ["EMPTY", "gemini_blocked"],
     // Not a refusal: retryable.
     ["OTHER", "gemini_failed"],
@@ -226,9 +231,11 @@ describe("geminiFor", () => {
   it("uses the fake (no key needed) when GEMINI_FAKE=1", async () => {
     vi.stubEnv("GEMINI_API_KEY", "");
     vi.stubEnv("GEMINI_FAKE", "1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {}); // the once-per-process fake-mode warning
     const req = new Request("http://x/", { headers: { cookie: "fake-scenario=no_steps" } });
     const res = await geminiFor(req).generateSteps("files/abc");
     expect(res.steps).toEqual([]);
     expect(sdk.generateContent).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
