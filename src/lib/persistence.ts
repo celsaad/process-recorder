@@ -7,6 +7,11 @@ export type DebouncedSaver = {
   schedule: (project: Project) => void;
   /** Writes the pending project now. Called from the `pagehide` handler. */
   flush: () => Promise<void>;
+  /**
+   * Drops this saver's pending edit and invalidates every queued write, **from all savers**:
+   * the generation is module-level (shared with `clearAll`), so a write queued by any saver
+   * before this call is skipped, and one already in flight reports no status or error.
+   */
   cancel: () => void;
 };
 
@@ -71,9 +76,12 @@ export function createDebouncedSaver(options: DebouncedSaverOptions = {}): Debou
       onStatus?.("saving");
       try {
         await saveProjectNow(project);
+        // Cancelled or cleared mid-write (e.g. "Start new"): the caller has reset its status.
+        if (gen !== generation) return;
         // A newer edit scheduled meanwhile reports its own status.
         if (!pending) onStatus?.("saved");
       } catch (e) {
+        if (gen !== generation) return;
         onStatus?.("error");
         onError?.(toAppError(e));
       }

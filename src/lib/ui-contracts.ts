@@ -39,8 +39,10 @@ export type FramePickerProps = {
 export type AppHeaderProps = {
   saveStatus: SaveStatus;
   onStartNew?: () => void;
-  /** Title + export slot. */
-  children?: ReactNode;
+  /** Left, after the brand (the project title). Its presence switches the header to editor mode. */
+  title?: ReactNode;
+  /** Far right, after the save status and "Start new" (e.g. Export). */
+  actions?: ReactNode;
 };
 
 export type DropzoneProps = { onFile: (file: File) => void; disabled?: boolean };
@@ -68,6 +70,10 @@ export type ConfirmDialogProps = {
   open: boolean;
   kind: ConfirmKind;
   onResolve: (ok: boolean) => void;
+  /** The current project's title; the body names it ("This deletes “Create a purchase order”…"). */
+  projectTitle?: string;
+  /** "replace" only: the file waiting to be processed. */
+  fileName?: string;
 };
 
 export type ProjectTitleProps = { value: string; onChange: (value: string) => void };

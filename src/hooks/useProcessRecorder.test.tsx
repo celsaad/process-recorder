@@ -349,7 +349,9 @@ describe("useProcessRecorder", () => {
 
     act(() => result.current.onFile(video()));
     await waitFor(() => expect(result.current.pendingConfirm).toBe("replace"));
+    expect(result.current.pendingFileName).toBe(video().name); // the dialog names the file
     act(() => result.current.resolveConfirm(false));
+    expect(result.current.pendingFileName).toBeNull();
     await new Promise((r) => setTimeout(r, 20));
     expect(fx.api.calls.upload).toBe(0);
     expect(result.current.project?.id).toBe(fixtureProject.id);

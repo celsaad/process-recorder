@@ -29,7 +29,7 @@ test("a 10:30 recording is rejected as too_long before any upload", async ({ pag
   await page.goto("/");
   await uploadSample(page, TOO_LONG);
 
-  await expect(page.getByRole("heading", { name: /video is too long/i })).toBeVisible({
+  await expect(page.getByRole("heading", { name: /recording is too long/i })).toBeVisible({
     timeout: 30_000,
   });
   await expect(

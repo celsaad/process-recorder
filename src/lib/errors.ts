@@ -85,7 +85,7 @@ export const ERROR_COPY: Record<
   }
 > = {
   missing_api_key: {
-    title: "Gemini API key missing",
+    title: "The Gemini API key is missing",
     body: () => "GEMINI_API_KEY isn't set. Add it to .env.local and restart.",
     primaryAction: "none",
     retryFrom: null,
@@ -98,7 +98,7 @@ export const ERROR_COPY: Record<
     retryFrom: null,
   },
   too_long: {
-    title: "Video is too long",
+    title: "This recording is too long",
     body: (detail) =>
       `${detail ? `This video is ${detail}.` : "This video is too long."} Recordings must be 10 minutes or less.`,
     primaryAction: "choose_file",
@@ -112,7 +112,7 @@ export const ERROR_COPY: Record<
     retryFrom: null,
   },
   undecodable: {
-    title: "Video can't be played",
+    title: "This video can't be played here",
     body: () => "This video can't be played here. Re-export it as H.264 MP4.",
     primaryAction: "choose_file",
     retryFrom: null,
@@ -124,7 +124,7 @@ export const ERROR_COPY: Record<
     retryFrom: "upload",
   },
   rate_limited: {
-    title: "Too many requests",
+    title: "Gemini is busy right now",
     body: () => "Gemini is rate-limiting requests. Wait a moment and try again.",
     primaryAction: "retry",
     retryFrom: "analyze",

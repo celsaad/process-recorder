@@ -32,7 +32,15 @@ const project = (title = "P"): Project => ({
 beforeEach(async () => {
   setMock.mockReset();
   setMock.mockImplementation(realSet);
-  await clearAll();
+  // clearAll waits for the module-level write chain; a test that leaves a write hung would
+  // otherwise stall every later test until vitest's timeout. Fail fast with the cause instead.
+  let guard: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    clearAll(),
+    new Promise<never>((_, reject) => {
+      guard = setTimeout(() => reject(new Error("clearAll hung: a previous test left a write in flight")), 2000);
+    }),
+  ]).finally(() => clearTimeout(guard));
 });
 
 afterEach(() => {
@@ -219,6 +227,36 @@ describe("createDebouncedSaver", () => {
     expect(await idb.get("project")).toBeUndefined();
     expect(await idb.keys()).toEqual([]);
     expect(setMock).toHaveBeenCalledTimes(1); // B never wrote
+  });
+
+  it("a write in flight when cancel runs reports no status or error afterwards", async () => {
+    let release!: (fail: boolean) => void;
+    setMock.mockImplementationOnce(
+      () => new Promise<void>((resolve, reject) => (release = (fail) => (fail ? reject(new Error("x")) : resolve()))),
+    );
+    setMock.mockImplementationOnce(
+      () => new Promise<void>((resolve, reject) => (release = (fail) => (fail ? reject(new Error("x")) : resolve()))),
+    );
+    const statuses: SaveStatus[] = [];
+    const onError = vi.fn();
+    const saver = createDebouncedSaver({ onStatus: (s) => statuses.push(s), onError });
+
+    saver.schedule(project("A"));
+    const a = saver.flush();
+    await new Promise((r) => setTimeout(r, 10)); // A reaches idb.set
+    saver.cancel(); // "Start new" resets the status to idle here
+    release(false);
+    await a;
+    expect(statuses).toEqual(["saving"]); // no late "saved"
+
+    saver.schedule(project("B"));
+    const b = saver.flush();
+    await new Promise((r) => setTimeout(r, 10));
+    saver.cancel();
+    release(true);
+    await b;
+    expect(statuses).toEqual(["saving", "saving"]); // no late "error"
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("saveShot surfaces storage_full as an AppError", async () => {

@@ -5,6 +5,8 @@ import { fixtureProject } from "@/fixtures/project";
 import type { JobState, Recorder } from "@/lib/types";
 
 // Each child component is another lane's; stand them in with markers that expose their props.
+// ReactNode slot props (`title`, `actions`) render in a `data-slot` wrapper.
+const SLOTS = ["title", "actions"] as const;
 const marker = (name: string) =>
   function Marker(props: Record<string, unknown>) {
     const data = Object.fromEntries(
@@ -12,6 +14,13 @@ const marker = (name: string) =>
     );
     return (
       <div data-testid={name} data-props={JSON.stringify(data)}>
+        {SLOTS.map((slot) =>
+          props[slot] && typeof props[slot] === "object" ? (
+            <div key={slot} data-slot={slot}>
+              {props[slot] as React.ReactNode}
+            </div>
+          ) : null,
+        )}
         {props.children as React.ReactNode}
       </div>
     );
@@ -20,7 +29,7 @@ const marker = (name: string) =>
 vi.mock("@/components/editor/StepList", () => ({ StepList: marker("StepList") }));
 vi.mock("@/components/feedback/Banner", () => ({ Banner: marker("Banner") }));
 vi.mock("@/components/feedback/ConfirmDialog", () => ({ ConfirmDialog: marker("ConfirmDialog") }));
-vi.mock("@/components/feedback/ErrorPanel", () => ({ ErrorPanel: marker("ErrorPanel") }));
+vi.mock("@/components/feedback/ErrorPanel", () => ({ ErrorPanel: marker("ErrorPanel"), ErrorDetail: marker("ErrorDetail") }));
 vi.mock("@/components/frames/FramePicker", () => ({ FramePicker: marker("FramePicker") }));
 vi.mock("@/components/project/ExportButton", () => ({ ExportButton: marker("ExportButton") }));
 vi.mock("@/components/project/NoSteps", () => ({ NoSteps: marker("NoSteps") }));
@@ -56,6 +65,7 @@ function recorder(job: JobState, over: Partial<Recorder> = {}): Recorder {
     startNew: noop,
     confirmStartNew: anoop,
     pendingConfirm: null,
+    pendingFileName: null,
     resolveConfirm: noop,
     setTitle: noop,
     repick: anoop,
@@ -97,12 +107,18 @@ describe("Home page", () => {
     expect(screen.getByRole("main")).toContainElement(screen.getByTestId("JobProgress"));
   });
 
-  it("AppHeader gets the title first and the actions as separate children", () => {
+  it("AppHeader gets the title and actions slots in the editor, neither elsewhere", () => {
     rec.current = recorder({ phase: "ready" });
-    render(<Home />);
+    const { unmount } = render(<Home />);
     const header = screen.getByTestId("AppHeader");
-    const kids = [...header.children].map((el) => el.getAttribute("data-testid"));
-    expect(kids).toEqual(["ProjectTitle", "ExportButton"]);
+    const slot = (name: string) => header.querySelector(`[data-slot=${name}] > [data-testid]`)?.getAttribute("data-testid");
+    expect(slot("title")).toBe("ProjectTitle");
+    expect(slot("actions")).toBe("ExportButton");
+    unmount();
+
+    rec.current = recorder({ phase: "idle" });
+    render(<Home />);
+    expect(screen.getByTestId("AppHeader").querySelector("[data-slot]")).toBeNull();
   });
 
   it("capturing → editor with CaptureBanner", () => {
@@ -145,15 +161,36 @@ describe("Home page", () => {
     expect(screen.getByTestId("ErrorPanel")).toHaveTextContent("Your video is already uploaded");
   });
 
+  it.each([
+    ["too_long", "Trim it to the part that shows the process"],
+    ["undecodable", "Nothing was sent to Gemini."],
+    ["missing_api_key", "GEMINI_API_KEY=your-key-here"],
+  ] as const)("error %s → ErrorPanel carries the board's hint", (kind, text) => {
+    rec.current = recorder({ phase: "error", error: { kind }, retryFrom: null });
+    render(<Home />);
+    expect(screen.getByTestId("ErrorPanel")).toHaveTextContent(text);
+  });
+
+  it("an error with no note or hint passes no children (no empty detail area)", () => {
+    rec.current = recorder({ phase: "error", error: { kind: "gemini_blocked" }, retryFrom: null });
+    render(<Home />);
+    expect(screen.getByTestId("ErrorPanel")).toBeEmptyDOMElement();
+  });
+
   it("storage full → warning banner", () => {
     rec.current = recorder({ phase: "ready" }, { storageFull: true });
     render(<Home />);
     expect(screen.getAllByTestId("Banner")[0]).toHaveTextContent("Changes won't survive a refresh");
   });
 
-  it("ConfirmDialog follows pendingConfirm", () => {
-    rec.current = recorder({ phase: "ready" }, { pendingConfirm: "replace" });
+  it("ConfirmDialog follows pendingConfirm and names the project and the pending file", () => {
+    rec.current = recorder({ phase: "ready" }, { pendingConfirm: "replace", pendingFileName: "Recording.mov" });
     render(<Home />);
-    expect(props("ConfirmDialog")).toEqual({ open: true, kind: "replace" });
+    expect(props("ConfirmDialog")).toEqual({
+      open: true,
+      kind: "replace",
+      projectTitle: fixtureProject.title,
+      fileName: "Recording.mov",
+    });
   });
 });
