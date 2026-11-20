@@ -212,16 +212,15 @@
 /* Focus ring (D13): white / blue / white bands, so the 2 px blue band always borders a
    white band. Visible on white, #F5F6F8, primary-blue fills (the inner white band separates
    the blue ring from the blue button) and the dark toast (the outer white band).
-   - Inner white: box-shadow 0–2 px. Blue: outline at 2–4 px. Outer white: box-shadow to 6 px.
+   - One white 6 px box-shadow; the blue outline (2–4 px) is drawn over it, leaving white
+     bands at 0–2 px and 4–6 px.
    - Deliberately NOT in a cascade layer: unlayered rules beat Tailwind's `utilities` layer,
      so the shadcn primitives' `focus-visible:ring-*` can't replace it.
    - Trade-off: while focused, an element's own `box-shadow` is replaced by the ring. */
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
-  box-shadow:
-    0 0 0 2px var(--focus-ring-outer),
-    0 0 0 6px var(--focus-ring-outer);
+  box-shadow: 0 0 0 6px var(--focus-ring-outer);
 }
 
 /* The sticky header (64 px, ~120 px when it wraps on narrow screens) must not cover the

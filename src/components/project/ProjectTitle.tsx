@@ -49,10 +49,10 @@ export function ProjectTitle({ value, onChange }: ProjectTitleProps) {
   };
 
   if (editing) {
-    // The wrapper keeps the results-heading id while renaming, so the hook's post-capture
-    // focus (RESULTS_HEADING_ID) always has a target.
+    // No element carries RESULTS_HEADING_ID while renaming, on purpose: if capture ends mid-rename,
+    // the hook's focus lookup finds nothing and focus stays in the input (D13 "focus stays put").
     return (
-      <div id={RESULTS_HEADING_ID} tabIndex={-1} className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={inputId} className="text-meta font-semibold text-foreground-2">
           Process title
         </label>

@@ -29,9 +29,11 @@ describe("ProjectTitle", () => {
     await user.click(screen.getByRole("button", { name: "Rename process" }));
     const input = screen.getByRole("textbox", { name: "Process title" });
     expect(input).toHaveFocus();
-    // The post-capture focus target still exists while renaming.
-    expect(document.getElementById(RESULTS_HEADING_ID)).toHaveAttribute("tabindex", "-1");
-    expect(document.getElementById(RESULTS_HEADING_ID)).toContainElement(input);
+    // While renaming nothing carries the results id, so the hook's post-capture focus
+    // (getElementById(RESULTS_HEADING_ID)?.focus()) is a no-op and typing continues.
+    expect(document.getElementById(RESULTS_HEADING_ID)).toBeNull();
+    document.getElementById(RESULTS_HEADING_ID)?.focus();
+    expect(input).toHaveFocus();
     const renameViolations = await axe(container);
     await user.clear(input);
     await user.type(input, "Raise a PO{Enter}");
