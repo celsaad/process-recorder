@@ -18,11 +18,13 @@ import {
   WidthType,
 } from "docx";
 import { renderForExport, type ExportImage } from "./image";
+import { DEFAULT_TEMPLATE, visibleColumns, type ColumnKind, type ExportTemplate, type TemplateColumn } from "./export-template";
 import type { Project, Step } from "./types";
 
 export type GetShot = (stepId: string) => Promise<Blob | null>;
 
-export const HEADERS = ["#", "Action", "Description", "Expected result", "Screenshot"] as const;
+/** Default headers, in default order (DEFAULT_TEMPLATE). */
+export const HEADERS: readonly string[] = DEFAULT_TEMPLATE.columns.map((c) => c.header);
 export const NO_SHOT_TEXT = "No screenshot";
 const FALLBACK_NAME = "test-script";
 
@@ -34,11 +36,41 @@ const MARGIN_TWIPS = 850;
 const PAGE_WIDTH_TWIPS = 16838; // A4 long edge
 const PAGE_HEIGHT_TWIPS = 11906; // A4 short edge
 const CONTENT_TWIPS = PAGE_WIDTH_TWIPS - 2 * MARGIN_TWIPS;
-const COLUMN_TWIPS = (() => {
-  const fixed = [44, 180, 260, 0, 280].map((px) => px * PX);
-  fixed[3] = CONTENT_TWIPS - fixed.reduce((a, b) => a + b, 0);
-  return fixed;
-})();
+const SHOT_COLUMN_TWIPS = 280 * PX;
+/** Relative widths of the non-screenshot columns. The default five reproduce the board: 44, 180, 260 px, rest. */
+const WEIGHT_TWIPS: Record<Exclude<ColumnKind, "screenshot">, number> = {
+  number: 44 * PX,
+  action: 180 * PX,
+  description: 260 * PX,
+  expectedResult: CONTENT_TWIPS - (44 + 180 + 260 + 280) * PX,
+  blank: 120 * PX,
+};
+
+/**
+ * Column widths in twips for the visible columns. The screenshot column keeps its fixed 280 px
+ * (unless it's alone); the others split the rest in proportion to their weights. The total is
+ * always exactly CONTENT_TWIPS (rounding drift goes to the widest flexible column).
+ */
+export function columnWidths(columns: TemplateColumn[]): number[] {
+  const flex = columns.filter((c) => c.kind !== "screenshot");
+  const hasShot = flex.length < columns.length;
+  if (flex.length === 0) return columns.map(() => CONTENT_TWIPS);
+  const available = CONTENT_TWIPS - (hasShot ? SHOT_COLUMN_TWIPS : 0);
+  const weight = (c: TemplateColumn) => WEIGHT_TWIPS[c.kind as Exclude<ColumnKind, "screenshot">];
+  const totalWeight = flex.reduce((a, c) => a + weight(c), 0);
+  const widths = columns.map((c) =>
+    c.kind === "screenshot" ? SHOT_COLUMN_TWIPS : Math.round((weight(c) * available) / totalWeight),
+  );
+  const drift = CONTENT_TWIPS - widths.reduce((a, b) => a + b, 0);
+  if (drift !== 0) {
+    let widest = -1;
+    columns.forEach((c, i) => {
+      if (c.kind !== "screenshot" && (widest < 0 || widths[i] > widths[widest])) widest = i;
+    });
+    widths[widest] += drift;
+  }
+  return widths;
+}
 /** Screenshot width in CSS px: the 280 px column minus its 10 px cell padding on each side, rounded. */
 const SHOT_WIDTH_PX = 258;
 
@@ -77,11 +109,11 @@ function textParagraph(text: string, bold = false): Paragraph {
   return new Paragraph({ children: [new TextRun({ text, bold, font: FONT, size: 24 })] });
 }
 
-function headerRow(): TableRow {
+function headerRow(columns: TemplateColumn[], widths: number[]): TableRow {
   return new TableRow({
     tableHeader: true,
     cantSplit: true,
-    children: HEADERS.map((h, i) => cell([textParagraph(h, true)], COLUMN_TWIPS[i], { shaded: true })),
+    children: columns.map((c, i) => cell([textParagraph(c.header, true)], widths[i], { shaded: true })),
   });
 }
 
@@ -101,25 +133,54 @@ function shotParagraph(shot: RowModel["shot"]): Paragraph {
   });
 }
 
-function bodyRow(row: RowModel): TableRow {
+function bodyCell(row: RowModel, kind: ColumnKind): Paragraph {
   const [n, action, description, expected] = row.texts;
+  switch (kind) {
+    case "number":
+      return textParagraph(n);
+    case "action":
+      return textParagraph(action, true);
+    case "description":
+      return textParagraph(description);
+    case "expectedResult":
+      return textParagraph(expected);
+    case "screenshot":
+      return shotParagraph(row.shot);
+    case "blank":
+      // Left empty for testers to fill in.
+      return new Paragraph({});
+  }
+}
+
+function bodyRow(row: RowModel, columns: TemplateColumn[], widths: number[]): TableRow {
   return new TableRow({
     cantSplit: true,
-    children: [
-      cell([textParagraph(n)], COLUMN_TWIPS[0]),
-      cell([textParagraph(action, true)], COLUMN_TWIPS[1]),
-      cell([textParagraph(description)], COLUMN_TWIPS[2]),
-      cell([textParagraph(expected)], COLUMN_TWIPS[3]),
-      cell([shotParagraph(row.shot)], COLUMN_TWIPS[4]),
-    ],
+    children: columns.map((c, i) => cell([bodyCell(row, c.kind)], widths[i])),
   });
 }
 
-/** Landscape, title, 5-column table. Highlights are burned into the screenshots. */
-export async function buildDocx(project: Project, steps: Step[], getShot: GetShot): Promise<Blob> {
+/**
+ * Landscape, title, then a table with the template's visible columns in order (default: the
+ * 5 board columns). Highlights are burned into the screenshots; without a visible screenshot
+ * column no shots are read or rendered.
+ */
+export async function buildDocx(
+  project: Project,
+  steps: Step[],
+  getShot: GetShot,
+  template: ExportTemplate = DEFAULT_TEMPLATE,
+): Promise<Blob> {
+  const columns = visibleColumns(template);
+  if (columns.length === 0) throw new Error("Export template has no visible columns");
+  const widths = columnWidths(columns);
+  const wantShots = columns.some((c) => c.kind === "screenshot");
   const images: (ExportImage | null)[] = [];
   // One at a time: each export render holds a full-size bitmap and canvas.
   for (const step of steps) {
+    if (!wantShots) {
+      images.push(null);
+      continue;
+    }
     try {
       const shot = step.captureState === "failed" ? null : await getShot(step.id);
       images.push(shot ? await renderForExport(shot, step.highlight) : null);
@@ -150,9 +211,9 @@ export async function buildDocx(project: Project, steps: Step[], getShot: GetSho
           }),
           new Table({
             width: { size: CONTENT_TWIPS, type: WidthType.DXA },
-            columnWidths: COLUMN_TWIPS,
+            columnWidths: widths,
             layout: TableLayoutType.FIXED,
-            rows: [headerRow(), ...rows.map(bodyRow)],
+            rows: [headerRow(columns, widths), ...rows.map((r) => bodyRow(r, columns, widths))],
           }),
         ],
       },

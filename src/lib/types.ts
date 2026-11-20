@@ -1,3 +1,5 @@
+import type { ExportTemplate } from "./export-template";
+
 // ---------- Domain ----------
 export type Rect = { x: number; y: number; w: number; h: number }; // normalized 0–1
 
@@ -128,5 +130,5 @@ export type Recorder = {
   setTitle: (t: string) => void;
   repick: (stepId: string, sec: number, shot: Blob) => Promise<void>;
   addStep: (afterId: string | null) => Promise<void>; // captures a frame at prev.timestamp + 1 s
-  exportDocx: () => Promise<void>;
+  exportDocx: (template?: ExportTemplate) => Promise<void>; // default: DEFAULT_TEMPLATE (5 board columns)
 };

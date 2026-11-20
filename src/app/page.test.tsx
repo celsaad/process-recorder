@@ -34,7 +34,7 @@ vi.mock("@/components/feedback/Banner", () => ({ Banner: marker("Banner") }));
 vi.mock("@/components/feedback/ConfirmDialog", () => ({ ConfirmDialog: marker("ConfirmDialog") }));
 vi.mock("@/components/feedback/ErrorPanel", () => ({ ErrorPanel: marker("ErrorPanel") }));
 vi.mock("@/components/frames/FramePicker", () => ({ FramePicker: marker("FramePicker") }));
-vi.mock("@/components/project/ExportButton", () => ({ ExportButton: marker("ExportButton") }));
+vi.mock("@/components/project/ExportOptions", () => ({ ExportOptions: marker("ExportOptions") }));
 vi.mock("@/components/project/NoSteps", () => ({ NoSteps: marker("NoSteps") }));
 vi.mock("@/components/project/ProjectTitle", () => ({ ProjectTitle: marker("ProjectTitle") }));
 vi.mock("@/components/shell/AppHeader", () => ({ AppHeader: marker("AppHeader") }));
@@ -116,7 +116,7 @@ describe("Home page", () => {
     const header = screen.getByTestId("AppHeader");
     const slot = (name: string) => header.querySelector(`[data-slot=${name}] > [data-testid]`)?.getAttribute("data-testid");
     expect(slot("title")).toBe("ProjectTitle");
-    expect(slot("actions")).toBe("ExportButton");
+    expect(slot("actions")).toBe("ExportOptions");
     unmount();
 
     rec.current = recorder({ phase: "idle" });
@@ -136,7 +136,7 @@ describe("Home page", () => {
     rec.current = recorder({ phase: "ready" });
     render(<Home />);
     expect(props("ProjectTitle")).toEqual({ value: fixtureProject.title });
-    expect(shown("ExportButton")).toBe(true);
+    expect(shown("ExportOptions")).toBe(true);
     expect(shown("StepList")).toBe(true);
     expect(shown("CaptureBanner")).toBe(false);
     expect(props("FramePicker")).toMatchObject({ open: false, videoUrl: "blob:video" });

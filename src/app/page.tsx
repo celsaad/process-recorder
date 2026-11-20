@@ -6,7 +6,7 @@ import { Banner } from "@/components/feedback/Banner";
 import { ConfirmDialog } from "@/components/feedback/ConfirmDialog";
 import { ErrorPanel } from "@/components/feedback/ErrorPanel";
 import { FramePicker } from "@/components/frames/FramePicker";
-import { ExportButton } from "@/components/project/ExportButton";
+import { ExportOptions } from "@/components/project/ExportOptions";
 import { NoSteps } from "@/components/project/NoSteps";
 import { ProjectTitle } from "@/components/project/ProjectTitle";
 import { AppHeader } from "@/components/shell/AppHeader";
@@ -102,7 +102,7 @@ export default function Home() {
         saveStatus={r.saveStatus}
         onStartNew={editor ? r.startNew : undefined}
         title={editor ? <ProjectTitle value={editor.title} onChange={r.setTitle} /> : undefined}
-        actions={editor ? <ExportButton onExport={r.exportDocx} /> : undefined}
+        actions={editor ? <ExportOptions onExport={r.exportDocx} /> : undefined}
       />
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6 sm:px-8">
         {r.storageFull && (

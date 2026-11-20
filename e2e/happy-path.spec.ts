@@ -32,7 +32,7 @@ for (const [format, file] of [
 
     // Export -> .docx named after the project title (the fake's title: "Create a purchase order").
     const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: /^export/i }).click();
+    await page.getByRole("button", { name: /^export to word/i }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("create-a-purchase-order.docx");
   });
