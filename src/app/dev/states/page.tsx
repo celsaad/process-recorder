@@ -3,7 +3,7 @@
 // Every Lane D component in every state, from fixtures (IMPLEMENTATION.md Lane D item 7).
 // Visual and keyboard checks happen here in Phase 2. Not linked from the app.
 
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { buttonClass } from "@/components/shell/button-styles";
 import { Dropzone } from "@/components/upload/Dropzone";
@@ -85,6 +85,20 @@ export default function DevStatesPage() {
           </AppHeader>
         </Sheet>
       ))}
+      <Sheet title="ExportButton: exporting (never finishes)">
+        <OnMount run={(el) => el.querySelector("button")?.click()}>
+          <div className="p-4">
+            <ExportButton onExport={() => new Promise<void>(() => {})} />
+          </div>
+        </OnMount>
+      </Sheet>
+      <Sheet title="ProjectTitle: renaming">
+        <OnMount run={(el) => el.querySelector<HTMLButtonElement>("button[aria-label='Rename process']")?.click()}>
+          <div className="p-4">
+            <ProjectTitle value={title} onChange={setTitle} />
+          </div>
+        </OnMount>
+      </Sheet>
       <Sheet title="ExportButton: always fails (toast with Try again)">
         <div className="p-4">
           <ExportButton
@@ -102,6 +116,13 @@ export default function DevStatesPage() {
       <Sheet title="EmptyState">
         <EmptyState onFile={(f) => alert(`onFile: ${f.name}`)} />
       </Sheet>
+      <Sheet title="Dropzone: file dragged over">
+        <OnMount run={(el) => el.querySelector("[data-testid=dropzone]")?.dispatchEvent(new Event("dragenter", { bubbles: true }))}>
+          <div className="p-6">
+            <Dropzone onFile={noop} />
+          </div>
+        </OnMount>
+      </Sheet>
       <Sheet title="Dropzone: disabled">
         <div className="p-6">
           <Dropzone onFile={noop} disabled />
@@ -110,8 +131,26 @@ export default function DevStatesPage() {
 
       {startedAt > 0 && (
         <>
+          <Sheet title="JobProgress: screenshots (if shown before the editor)">
+            <JobProgress
+              job={job(
+                startedAt,
+                "capturing",
+                ["validating", "received", "sending_to_gemini", "gemini_processing", "analyzing"],
+                { done: 2, total: 4 },
+              )}
+              video={shortVideo}
+              onCancel={noop}
+            />
+          </Sheet>
       <Sheet title="JobProgress: validating">
         <JobProgress job={job(startedAt, "validating", [])} video={shortVideo} onCancel={noop} />
+      </Sheet>
+      <Sheet title="JobProgress: receiving">
+        <JobProgress job={job(startedAt, "received", ["validating"])} video={shortVideo} onCancel={noop} />
+      </Sheet>
+      <Sheet title="JobProgress: sending to Gemini">
+        <JobProgress job={job(startedAt, "sending_to_gemini", ["validating", "received"])} video={shortVideo} onCancel={noop} />
       </Sheet>
       <Sheet title="JobProgress: Gemini processing, long video (5:26)">
         <JobProgress
@@ -200,7 +239,19 @@ function Sheet({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2.5">
       <h2 className="text-meta font-semibold text-foreground-2">{title}</h2>
-      <div className="overflow-hidden rounded-xl border border-control-border bg-background">{children}</div>
+      <div className="overflow-visible rounded-xl border border-control-border bg-background p-2">{children}</div>
     </section>
   );
+}
+
+/** Puts a component into a state that only user input reaches (drag-over, busy, renaming). */
+function OnMount({ run, children }: { run: (el: HTMLElement) => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current || !ref.current) return;
+    done.current = true;
+    run(ref.current);
+  }, [run]);
+  return <div ref={ref}>{children}</div>;
 }

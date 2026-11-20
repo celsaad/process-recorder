@@ -24,16 +24,21 @@ describe("ProjectTitle", () => {
     const heading = screen.getByRole("heading", { level: 1, name: "Create a purchase order" });
     expect(heading).toHaveAttribute("id", RESULTS_HEADING_ID);
     expect(heading).toHaveAttribute("tabindex", "-1");
-    expect(await axe(container)).toHaveNoViolations();
+    const viewViolations = await axe(container);
 
     await user.click(screen.getByRole("button", { name: "Rename process" }));
     const input = screen.getByRole("textbox", { name: "Process title" });
     expect(input).toHaveFocus();
-    expect(await axe(container)).toHaveNoViolations();
+    // The post-capture focus target still exists while renaming.
+    expect(document.getElementById(RESULTS_HEADING_ID)).toHaveAttribute("tabindex", "-1");
+    expect(document.getElementById(RESULTS_HEADING_ID)).toContainElement(input);
+    const renameViolations = await axe(container);
     await user.clear(input);
     await user.type(input, "Raise a PO{Enter}");
     expect(onChange).toHaveBeenCalledExactlyOnceWith("Raise a PO");
     expect(screen.getByRole("button", { name: "Rename process" })).toHaveFocus();
+    expect(viewViolations).toHaveNoViolations();
+    expect(renameViolations).toHaveNoViolations();
   });
 
   it("Esc cancels, and an empty title is not saved", async () => {
@@ -74,22 +79,27 @@ describe("ExportButton", () => {
     expect(button).toHaveFocus();
     await user.click(button);
     expect(onExport).toHaveBeenCalledTimes(1);
-    expect(await axe(container)).toHaveNoViolations();
+    const busyViolations = await axe(container);
     await act(async () => finish());
     expect(button).not.toHaveAttribute("aria-disabled");
+    expect(busyViolations).toHaveNoViolations();
   });
 
   it("shows the export-failed toast with focus on Try again; Try again re-runs the export", async () => {
     const onExport = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce(undefined);
     const user = userEvent.setup();
-    render(withShell(<ExportButton onExport={onExport} />));
+    const { container } = render(withShell(<ExportButton onExport={onExport} />));
     await user.click(screen.getByRole("button", { name: "Export to Word" }));
     const retry = await screen.findByRole("button", { name: "Try again" });
     expect(screen.getByText(/couldn.t be created/)).toBeInTheDocument();
     await waitFor(() => expect(retry).toHaveFocus());
+    // The toast renders inside sonner's region in this container; check it while it's open.
+    const toastViolations = await axe(container);
     await user.click(retry);
     expect(onExport).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Try again" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Export to Word" })).toHaveFocus();
+    expect(toastViolations).toHaveNoViolations();
   });
 });
 
@@ -129,12 +139,13 @@ describe("AppHeader", () => {
     expect(names).toEqual(["Rename process", "Start new", "Export to Word"]);
     await userEvent.setup().click(screen.getByRole("button", { name: "Start new" }));
     expect(onStartNew).toHaveBeenCalledOnce();
-    expect(await axe(container)).toHaveNoViolations();
+    const editorViolations = await axe(container);
 
     rerender(withShell(<AppHeader saveStatus="saving" onStartNew={onStartNew}><span>t</span></AppHeader>));
     expect(screen.getByRole("banner")).toHaveTextContent("Saving…");
     rerender(withShell(<AppHeader saveStatus="error" onStartNew={onStartNew}><span>t</span></AppHeader>));
     expect(screen.getByRole("banner")).toHaveTextContent("Not saved");
     expect(screen.getByRole("banner").querySelector("[aria-live],[role=status]")).toBeNull();
+    expect(editorViolations).toHaveNoViolations();
   });
 });

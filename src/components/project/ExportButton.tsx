@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 import type { ExportButtonProps } from "@/lib/ui-contracts";
-import { useAnnounce } from "@/components/shell/LiveRegion";
 import { buttonClass } from "@/components/shell/button-styles";
 import { Spinner } from "@/components/shell/Spinner";
 
@@ -19,7 +18,6 @@ export function ExportButton({ onExport }: ExportButtonProps) {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const announce = useAnnounce();
 
   useEffect(() => () => void toast.dismiss(EXPORT_TOAST_ID), []);
 
@@ -31,7 +29,7 @@ export function ExportButton({ onExport }: ExportButtonProps) {
     try {
       await onExport();
     } catch {
-      announce("Export failed");
+      // Not announced via useAnnounce: sonner's toast region speaks it, and focus moves to Try again.
       toast.custom(
         (id) => (
           <ExportFailedToast

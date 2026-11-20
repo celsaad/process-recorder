@@ -209,21 +209,29 @@
   }
 }
 
-/* Two-tone focus ring (D13): 2 px blue against the element, 2 px white outside it, so it
-   reads on white, grey, dark toasts and dark screenshot content alike.
-   Deliberately NOT in a cascade layer: unlayered rules beat Tailwind's `utilities` layer,
-   so the shadcn primitives' single translucent `focus-visible:ring-*` can't replace it. */
+/* Focus ring (D13): white / blue / white bands, so the 2 px blue band always borders a
+   white band. Visible on white, #F5F6F8, primary-blue fills (the inner white band separates
+   the blue ring from the blue button) and the dark toast (the outer white band).
+   - Inner white: box-shadow 0–2 px. Blue: outline at 2–4 px. Outer white: box-shadow to 6 px.
+   - Deliberately NOT in a cascade layer: unlayered rules beat Tailwind's `utilities` layer,
+     so the shadcn primitives' `focus-visible:ring-*` can't replace it.
+   - Trade-off: while focused, an element's own `box-shadow` is replaced by the ring. */
 :focus-visible {
-  outline: 2px solid var(--focus-ring-outer);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
-  box-shadow: 0 0 0 2px var(--ring);
+  box-shadow:
+    0 0 0 2px var(--focus-ring-outer),
+    0 0 0 6px var(--focus-ring-outer);
 }
 
-@utility focus-ring {
-  &:focus-visible {
-    outline: 2px solid var(--focus-ring-outer);
-    outline-offset: 2px;
-    box-shadow: 0 0 0 2px var(--ring);
+/* The sticky header (64 px, ~120 px when it wraps on narrow screens) must not cover the
+   focused element (WCAG 2.4.11). */
+html {
+  scroll-padding-top: 88px;
+}
+@media (max-width: 639px) {
+  html {
+    scroll-padding-top: 184px;
   }
 }
 

@@ -79,19 +79,17 @@ export function Dropzone({ onFile, disabled = false }: DropzoneProps) {
         </div>
       )}
 
-      {dragOver ? (
-        <p className="text-base font-semibold">Drop the recording to upload it</p>
-      ) : (
-        <button
-          type="button"
-          onClick={open}
-          aria-disabled={disabled || undefined}
-          aria-describedby={hintId}
-          className={buttonClass("primary", "lg", disabled ? disabledButtonClass : undefined)}
-        >
-          Choose a recording
-        </button>
-      )}
+      {/* The button stays mounted while dragging, so a focused button keeps focus. */}
+      {dragOver && <p className="text-base font-semibold">Drop the recording to upload it</p>}
+      <button
+        type="button"
+        onClick={open}
+        aria-disabled={disabled || undefined}
+        aria-describedby={hintId}
+        className={buttonClass("primary", "lg", disabled ? disabledButtonClass : undefined)}
+      >
+        Choose a recording
+      </button>
 
       {disabled ? (
         <p id={hintId} className="text-sm text-foreground-2">

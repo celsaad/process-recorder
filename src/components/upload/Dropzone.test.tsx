@@ -38,9 +38,12 @@ describe("Dropzone", () => {
     expect(onFile).toHaveBeenLastCalledWith(f);
 
     const zone = screen.getByTestId("dropzone");
+    const button = screen.getByRole("button", { name: "Choose a recording" });
+    button.focus();
     const dropped = file();
     fireEvent.dragEnter(zone, { dataTransfer: { files: [dropped], types: ["Files"] } });
     expect(screen.getByText("Drop the recording to upload it")).toBeInTheDocument();
+    expect(button).toHaveFocus(); // the button stays mounted while dragging
     fireEvent.drop(zone, { dataTransfer: { files: [dropped], types: ["Files"] } });
     expect(onFile).toHaveBeenLastCalledWith(dropped);
     expect(onFile).toHaveBeenCalledTimes(2);
