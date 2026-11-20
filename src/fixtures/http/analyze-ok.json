@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "processTitle": "Create a purchase order",
+  "steps": [
+    {
+      "action": "Open Purchasing → Purchase Orders and click 'New Order'",
+      "description": "From the main navigation, open the Purchasing module, choose Purchase Orders, then click the 'New Order' button.",
+      "expectedResult": "A blank 'New Purchase Order' form opens.",
+      "timestampSec": 4,
+      "box": { "x": 0.81, "y": 0.09, "w": 0.13, "h": 0.06 }
+    },
+    {
+      "action": "Select supplier 'Northwind Office Supply'",
+      "description": "Click the Supplier field, type 'North', and pick 'Northwind Office Supply (V-10482)'.",
+      "expectedResult": "Payment Terms and Ship-to Address default from the supplier record.",
+      "timestampSec": 17,
+      "box": { "x": 0.08, "y": 0.25, "w": 0.38, "h": 0.07 }
+    },
+    {
+      "action": "Add a line: 'A4 copy paper, 80 gsm', quantity 20, unit price 34.50",
+      "description": "Click 'Add line', choose the item, enter the quantity and unit price, then press Tab.",
+      "expectedResult": "The line total shows 690.00.",
+      "timestampSec": 41,
+      "box": null
+    },
+    {
+      "action": "Click 'Submit for approval'",
+      "description": "Scroll to the bottom of the form and click 'Submit for approval'.",
+      "expectedResult": "The status changes to 'Pending approval'.",
+      "timestampSec": 63,
+      "box": { "x": 0.72, "y": 0.86, "w": 0.2, "h": 0.06 }
+    }
+  ]
+}

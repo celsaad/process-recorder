@@ -43,3 +43,9 @@ next-env.d.ts
 
 # example videos (large, not committed)
 samples/
+
+# agent worktrees, test output
+.claude/
+/playwright-report/
+/test-results/
+/coverage/

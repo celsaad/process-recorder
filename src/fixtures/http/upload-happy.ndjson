@@ -1,0 +1,4 @@
+{"type":"stage","stage":"received"}
+{"type":"stage","stage":"sending_to_gemini"}
+{"type":"stage","stage":"gemini_processing"}
+{"type":"ready","fileName":"files/k3j9x0q2b7mf","mimeType":"video/mp4"}
