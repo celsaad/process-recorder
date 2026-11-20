@@ -159,6 +159,7 @@ export default function MediaDevPage() {
           durationSec={info.durationSec}
           initialSec={Math.min(4, info.durationSec)}
           stepNumber={1}
+          stepAction={fixtureProject.steps[0].action}
           onConfirm={(sec, shot) => {
             setPicked({ sec, url: track(shot) });
             setPickerOpen(false);

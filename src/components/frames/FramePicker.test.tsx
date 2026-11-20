@@ -239,6 +239,56 @@ describe("FramePicker", () => {
     await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(19, shot));
   });
 
+  it("a stuck capture gives up after 6 s: shows the failure and unlocks Esc", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let finish!: (b: Blob) => void;
+      captureFromVideo.mockReturnValue(new Promise<Blob>((r) => (finish = r)));
+      const onConfirm = vi.fn();
+      const onCancel = vi.fn();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<Harness onConfirm={onConfirm} onCancel={onCancel} />);
+      await user.click(screen.getByRole("button", { name: "Pick frame for step 3" }));
+      await screen.findByRole("slider");
+      await user.keyboard("{Enter}");
+      await act(() => vi.advanceTimersByTimeAsync(5500));
+      expect(screen.queryByText(/Couldn.t capture this frame/)).not.toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(600));
+      expect(screen.getByText("Couldn't capture this frame. Try a nearby moment, or cancel.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Use this frame for step 3" })).toBeEnabled();
+      // The late capture is dropped, and Esc works again.
+      await act(async () => finish(shot));
+      expect(onConfirm).not.toHaveBeenCalled();
+      await user.keyboard("{Escape}");
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the step's action under the title when given", async () => {
+    const picker = (stepAction?: string) => (
+      <LiveRegionProvider>
+        <FramePicker
+          open
+          videoUrl="blob:video"
+          durationSec={326}
+          initialSec={19}
+          stepNumber={3}
+          stepAction={stepAction}
+          onConfirm={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </LiveRegionProvider>
+    );
+    const { rerender } = render(picker("Select the supplier “Alder & Finch Ltd”"));
+    expect(await screen.findByText("Select the supplier “Alder & Finch Ltd”")).toBeInTheDocument();
+    // A subtitle, not part of the dialog's name.
+    expect(screen.getByRole("dialog", { name: "Pick a frame for step 3" })).toBeInTheDocument();
+    rerender(picker());
+    expect(screen.queryByText(/Select the supplier/)).not.toBeInTheDocument();
+  });
+
   it("returns focus to the opener after a confirm", async () => {
     captureFromVideo.mockResolvedValue(shot);
     const user = userEvent.setup();

@@ -2,6 +2,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFrameGrabber, probeVideo, resolveDuration } from "./frames";
 
+// jsdom has no canvas encoder; a capture that gets as far as drawing resolves with this blob.
+vi.mock("./image", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./image")>()),
+  encodeFrame: vi.fn(async () => new Blob(["frame"], { type: "image/webp" })),
+}));
+
 /** Just enough of an HTMLVideoElement for probeVideo and the frame grabber. */
 class FakeVideo extends EventTarget {
   muted = false;
@@ -30,6 +36,13 @@ class FakeVideo extends EventTarget {
   set currentTime(v: number) {
     this.time = v;
     this.seeks.push(v);
+    if (this.modelSeeking) this.seeking = true;
+  }
+  /** Opt-in: setting currentTime starts a seek that only ends with `land()`. */
+  modelSeeking = false;
+  land() {
+    this.seeking = false;
+    this.dispatchEvent(new Event("seeked"));
   }
   removeAttribute() {}
   load() {}
@@ -45,6 +58,9 @@ beforeEach(() => {
   );
   URL.createObjectURL = vi.fn(() => "blob:fake");
   URL.revokeObjectURL = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+    () => ({ drawImage() {} }) as unknown as CanvasRenderingContext2D,
+  );
 });
 
 afterEach(() => {
@@ -125,6 +141,62 @@ describe("createFrameGrabber", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
     grabber.dispose(); // idempotent
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it("after an abort mid-seek, the next capture lets the stale seek land before seeking", async () => {
+    video.modelSeeking = true;
+    const grabber = createFrameGrabber(blob);
+    const ctrl = new AbortController();
+    const first = expect(grabber.capture(5, { signal: ctrl.signal })).rejects.toMatchObject({ kind: "cancelled" });
+    await vi.waitFor(() => expect(video.seeks).toEqual([5]));
+    ctrl.abort();
+    await first;
+    expect(video.seeking).toBe(true);
+
+    let done = false;
+    const second = grabber.capture(6).finally(() => (done = true));
+    await new Promise((r) => setTimeout(r, 0));
+    // Still waiting for the stale seek: seeking now would let its `seeked` resolve this capture.
+    expect(video.seeks).toEqual([5]);
+    video.land(); // the stale seek to 5 lands
+    await vi.waitFor(() => expect(video.seeks).toEqual([5, 6]));
+    expect(done).toBe(false);
+    video.land();
+    await expect(second).resolves.toBeInstanceOf(Blob);
+  });
+
+  it("aborting while the video is still loading rejects right away (no 8 s load wait)", async () => {
+    vi.useFakeTimers();
+    video.readyState = 0;
+    const grabber = createFrameGrabber(blob);
+    const ctrl = new AbortController();
+    const first = expect(grabber.capture(5, { signal: ctrl.signal })).rejects.toMatchObject({ kind: "cancelled" });
+    await vi.advanceTimersByTimeAsync(10);
+    ctrl.abort();
+    await first;
+    expect(video.seeks).toEqual([]);
+    // The shared load isn't poisoned by that abort: the next capture proceeds once data arrives.
+    const second = grabber.capture(6);
+    video.readyState = 4;
+    video.dispatchEvent(new Event("loadeddata"));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(video.seeks).toEqual([6]);
+    video.dispatchEvent(new Event("seeked"));
+    await expect(second).resolves.toBeInstanceOf(Blob);
+  });
+
+  it("cancels a frame callback that never fires once the fallback elapses", async () => {
+    vi.useFakeTimers();
+    const fake = video as unknown as Record<string, unknown>;
+    fake.requestVideoFrameCallback = vi.fn(() => 7);
+    fake.cancelVideoFrameCallback = vi.fn();
+    const grabber = createFrameGrabber(blob);
+    const result = grabber.capture(5);
+    await vi.advanceTimersByTimeAsync(10);
+    video.dispatchEvent(new Event("seeked"));
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(result).resolves.toBeInstanceOf(Blob);
+    expect(fake.cancelVideoFrameCallback).toHaveBeenCalledWith(7);
   });
 
   it("a failed capture does not break the queue", async () => {
