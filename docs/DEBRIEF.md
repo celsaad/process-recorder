@@ -52,15 +52,20 @@ From [D15](DECISIONS.md#d15-scope-cuts-deliberate): Markdown/print export, drag 
 - **Timestamp drift (about ±1 s).** The re-pick flow mitigates it. Measure how often users re-pick.
 - **Long or noisy recordings** (idle time, mistakes). The prompt asks Gemini to skip non-actions, and users can delete steps.
 
-## Measured numbers (fill in from the example videos)
+## Measured numbers (real Gemini, `gemini-3.8-flash`, local production build, 2026-11-20)
 
-| Metric | Value |
-|---|---|
-| Upload + Gemini processing time (2-minute video) | |
-| Analysis time | |
-| Steps found vs actual | |
-| Steps needing a re-pick | |
-| Highlights needing adjustment | |
+| Sample | Length | Upload + Gemini processing | Analysis | Steps on screen | Steps | Word export (clicked mid-capture) |
+|---|---|---|---|---|---|---|
+| `po-to-gr-compressed.mp4` (3 MB) | 1:48 | 8.4 s | 27.0 s | 35.5 s | 22 | 22/22 screenshots, 1.5 MB |
+| `j45-pr-po-si.mp4` (7 MB) | 2:44 | 10.0 s | 40.7 s | 51.1 s | 48 | 48/48, 5.3 MB |
+| `j45-pr.mov` (76 MB, Retina) | 2:25 | 25.5 s | 30.3 s | 56.1 s | 22 | 22/22, 2.8 MB |
+| `oracle-fusion-pr-to-po.mp4` | 3:33 (long-video notice) | 13.5 s | 16.7 s | 30.5 s | 13 | 13/13, 1.6 MB |
+| `oracle-pr-to-po-long.mp4` | 5:26 (long-video notice) | 13.4 s | 19.8 s | 33.5 s | 16 | 16/16, 1.3 MB |
+
+- **Screenshots:** about 1–2 s for all steps after the list appears (WebP, captured in the browser).
+- **End to end:** 30–60 s from drop to an editable list, against 45 minutes by hand.
+- **Step count varies between runs of the same video** (e.g. 26 vs 13 for the 3:33 sample in an earlier run). The model's granularity isn't deterministic, which is the strongest argument for the editing tools (add, delete, re-pick) and for a future quality/eval loop.
+- Not measured automatically: how many steps need a re-pick or highlight adjustment. Check by hand in the demo.
 
 ## How it was built (process)
 
