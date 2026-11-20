@@ -4,10 +4,11 @@
 
 | State | What's on screen | Focus / announcement |
 |---|---|---|
-| **Empty (first visit)** | Dropzone ("Drop a screen recording or choose a file"), accepted formats, 3-minute / 500 MB limits, a 3-step "how it works" | Page heading. Dropzone is the first tab stop after the header |
+| **Empty (first visit)** | Dropzone ("Drop a screen recording or choose a file"), accepted formats, 10-minute / 500 MB limits ("best under 3 minutes"), a 3-step "how it works" | Page heading. Dropzone is the first tab stop after the header |
 | **Restored project** | The editor with the last project, plus "Start new" | Status: "Restored your last project" |
 | **Validating** | Brief inline spinner on the dropzone (milliseconds) | None |
 | **Uploading** | Stage list (Receiving ▸ Sending to Gemini ▸ Gemini processing ▸ Analyzing ▸ Screenshots), with elapsed time on the active stage, an indeterminate bar, file name/size, **Cancel** | Status: stage name on each change |
+| **Long video (3:00–10:00)** | Info notice (not an error) in the progress screen and at the top of the editor: "This recording is 5:26. Longer recordings take longer to process and are more likely to miss steps." (D16) | Included in the stage announcement once |
 | **Analyzing** | Same stage list | Status: "Analyzing steps" |
 | **Capturing** | Step cards render immediately with skeleton screenshots that fill in one by one ("Screenshots 3/12") | Status: "Capturing screenshots". Focus stays put |
 | **Ready** | Editor: title, step cards, Export button, save indicator | Focus moves to the results heading **after** capture ends. Status: "12 steps ready" |

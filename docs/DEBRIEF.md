@@ -10,7 +10,7 @@ A 30-minute walkthrough. Fill in the "Actual" section and the measured numbers a
 
 ## 2. Demo script (8 min)
 
-1. Empty state → drop a bad file (a PDF, or a video over 3 minutes) → instant, specific error. *Validation runs before any upload time or quota is spent.*
+1. Empty state → drop a bad file (a PDF, or a video over 10 minutes) → instant, specific error. *Validation runs before any upload time or quota is spent.*
 2. Drop a real recording → honest stage list with elapsed time → **cancel** → drop again.
 3. Results: screenshots fill in → edit a step → move it **with the keyboard** → delete → Undo.
 4. Re-pick a frame with the scrubber (arrow keys).
@@ -30,6 +30,7 @@ A 30-minute walkthrough. Fill in the "Actual" section and the measured numbers a
 | State machine | Impossible states can't be represented. Each phase has one UI and one announcement | D7 |
 | IndexedDB with split keys | Typing saves only small JSON. Blobs are written once | D8 |
 | Highlights as data | Editable forever. Composited only on export | D9 |
+| Length limits | The brief said under 3 minutes but the example videos weren't, so I warn at 3 and reject at 10 | D16 |
 | Error taxonomy | Every error has a cause, a message and a next action. 16 kinds | D10 |
 | No shortcuts in textareas | Buttons + Tab order beat clever shortcuts that break editing | D12 |
 

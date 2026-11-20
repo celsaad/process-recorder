@@ -11,7 +11,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 **Status:** Planned
 
-**Context.** The exercise is 3 hours. Videos are up to 3 minutes; QuickTime screen recordings on a Retina display can be 50–300 MB.
+**Context.** The exercise is 3 hours. Videos are expected to be under 3 minutes (see D16); QuickTime screen recordings on a Retina display can be 50–300 MB.
 
 **Decision.** Run with `pnpm dev` / `pnpm start` on the user's machine. The repo is on GitHub for review, not deployed.
 
@@ -221,7 +221,7 @@ A "Saving… / Saved" indicator sits in the header.
 |---|---|---|---|
 | `missing_api_key` | server | "GEMINI_API_KEY isn't set. Add it to .env.local and restart." | None (setup) |
 | `unsupported_type` | client + server | "That's a .pdf. Upload an MP4, MOV or WebM screen recording." | Choose another file |
-| `too_long` | client | "This video is 4:12. Recordings must be 3 minutes or less." | Choose another file |
+| `too_long` | client | "This video is 12:40. Recordings must be 10 minutes or less." (see D16) | Choose another file |
 | `too_large` | client + server | "This file is 640 MB. The limit is 500 MB." | Choose another file |
 | `undecodable` | client (load probe + timeout) | "This video can't be played here. Re-export it as H.264 MP4." | Choose another file |
 | `network` | client | "Connection lost." | Retry from the failed stage |
@@ -303,6 +303,23 @@ Five layers, each catching a different class of bug:
 
 ---
 
+## D16. Video length: warn over 3 minutes, reject over 10
+
+**Status:** Planned
+
+**Context.** The brief says to expect videos under 3 minutes, but two of the provided example videos are 3:33 and 5:26. A hard 3-minute limit would reject the interviewer's own samples. Real consultants' recordings will also overrun.
+
+**Decision.** All limits live in one constants file (`lib/limits.ts`): `SOFT_DURATION_SEC = 180`, `MAX_DURATION_SEC = 600`, `MAX_BYTES = 500 MB`.
+- **≤ 3:00:** no notice.
+- **3:00–10:00:** accepted, with a non-blocking info notice during processing and in the editor: "This recording is 5:26. Longer recordings take longer to process and are more likely to miss steps. Check the list carefully."
+- **> 10:00:** rejected as `too_long`.
+
+**Why 10 minutes.** At Gemini's default 1 fps, 10 minutes is about 600 frames, which is comfortably within the model's context and keeps processing time reasonable. Beyond that, a "test script" is probably several processes and should be split.
+
+**Tradeoff.** Longer videos mean slower analysis and more step-level mistakes. The notice sets that expectation instead of refusing the work.
+
+---
+
 ## D15. Scope cuts (deliberate)
 
 The reviewer estimated the original plan at 6–8 hours. These cuts are ordered from most risk for least value:
@@ -338,6 +355,7 @@ An independent AI reviewer (a separate model with no stake in the plan) critique
 | D13 | `role="alert"` + focus move; 5 s undo toast | Focus move only; undo stays until dismissed | Double announcement; WCAG 2.2.1 |
 | D3 | Native PNG | WebP stored (JPEG fallback), JPEG on export, max 1920 px | 2–5 MB per PNG would bloat the docx and storage. WebP keeps text sharper than JPEG. AVIF can't be encoded from a canvas. docx needs JPEG/PNG |
 | D15 | Markdown, print, dnd-kit, auto-backoff | Cut | Fit 3 hours |
+| D16 | Hard reject over 3:00 | Notice over 3:00, reject over 10:00 | Two of the provided example videos are 3:33 and 5:26 |
 | D14 | Unit tests on pure logic only | Five layers incl. component, contract, Playwright E2E with fake Gemini, CI | Requested. The contract fixtures also guard the parallel build |
 | D5 | `box_2d` both "length 4" and "`[]` if none" | Length 0 or 4; anything else → `[]` | Contradiction found in the plan review |
 | D10 | Silent re-upload on `file_expired` | Explicit retry from upload | Second review: the silent path was nearly unreachable |

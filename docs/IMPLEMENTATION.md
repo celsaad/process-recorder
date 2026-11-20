@@ -26,8 +26,8 @@ Phase 0 ──► ┌ A  Server + Gemini (+ spike) ─┐
 | `po-to-gr-compressed.mp4` | 1:48 | 1296×720, 3 MB | **E2E fixture** (small, fast) |
 | `j45-pr-po-si.mp4` | 2:44 | 1920×1080, 7 MB | Happy path |
 | `j45-pr.mov` | 2:25 | 3456×1990, 76 MB | QuickTime `.mov`, Retina (tests the 1920 px cap and large uploads) |
-| `oracle-fusion-pr-to-po.mp4` | 3:33 | 1920×1080, 9 MB | **Over the 3-minute guidance.** See D10 `too_long` |
-| `oracle-pr-to-po-long.mp4` | 5:26 | 1280×720, 12 MB, Opus audio | **Over the 3-minute guidance.** See D10 `too_long` |
+| `oracle-fusion-pr-to-po.mp4` | 3:33 | 1920×1080, 9 MB | Over 3:00: **long-video notice** (D16) |
+| `oracle-pr-to-po-long.mp4` | 5:26 | 1280×720, 12 MB, Opus audio | Over 3:00: **long-video notice** (D16) |
 
 Total ≈ 160 min of the 180, leaving 20 minutes of slack.
 
@@ -74,6 +74,7 @@ These are small, pure, and needed by several lanes, so they are written *for rea
 | `lib/timestamp.ts` | `parseTimestamp(s): number \| null` accepts `SS`, `M:SS`, `MM:SS`, `MM:SS.s`, `H:MM:SS` and rejects anything else. `formatTimestamp(sec, precision: 0 \| 1 = 0)` → `"1:05"` / `"1:05.3"`. `formatBytes(n)` → `"640 MB"` |
 | `lib/geometry.ts` | `box2dToRect(box: number[]): Rect \| null` (`null` unless length 4, in range, non-degenerate), `clampRect`, `moveRect(r, dx, dy)`, `resizeRect(r, dw, dh)`, `MIN_RECT` |
 | `lib/schema.ts` | zod: `GeminiResponseSchema` (accepts `box_2d` of length 0 or 4; any other length becomes `[]` rather than failing the response), `UploadEventSchema`, `AnalyzeResponseSchema` |
+| `lib/limits.ts` | `SOFT_DURATION_SEC = 180`, `MAX_DURATION_SEC = 600`, `MAX_BYTES = 500 * 1024 ** 2`, `ACCEPTED_TYPES`, `isLongVideo(sec)` (D16). Used by the client and the server |
 | `lib/steps.ts` | `createStep(partial, timestampSec): Step` (`crypto.randomUUID()`), `stepsFromRaw(raw: RawStep[], durationSec): Step[]` (clamp to duration, `captureState: "pending"`, `highlight = suggestedHighlight = box`, `highlightSource: box ? "gemini" : null`) |
 | `components/shell/LiveRegion.tsx` | `LiveRegionProvider` + `useAnnounce(): (msg: string) => void`. Mounted in `layout.tsx` |
 | `app/layout.tsx` | Mounts `LiveRegionProvider`, `<Toaster />`, `TooltipProvider`, and the Inter font |
@@ -155,7 +156,7 @@ export type ErrorKind =
   | "file_expired" | "not_screen_recording" | "capture_failed" | "storage_full" | "cancelled";
 
 /** `detail` is display-ready text produced by whoever raises the error,
- *  e.g. too_long → "4:12", too_large → "640 MB", unsupported_type → ".pdf",
+ *  e.g. too_long → "12:40", too_large → "640 MB", unsupported_type → ".pdf",
  *  not_screen_recording → the model's rejectionReason. */
 export type SerializedAppError = { kind: ErrorKind; detail?: string };
 
@@ -278,7 +279,7 @@ Each lane: one agent, `isolation: "worktree"`. The list order within each lane i
 
 1. `frames.ts`:
    - `validateFile(file)` (type and ≤500 MB; throws `AppError` with display-ready `detail`).
-   - `probeVideo(file, {timeoutMs = 8000}) → VideoInfo` (load probe, `Infinity`-duration workaround, ≤3:00 check).
+   - `probeVideo(file, {timeoutMs = 8000}) → VideoInfo` (load probe, `Infinity`-duration workaround, `> MAX_DURATION_SEC` → `too_long`; D16).
    - `createFrameGrabber(blob) → { capture(sec, {signal}) → Blob; dispose() }` (sequential queue, same-time guard, per-seek timeout → `capture_failed`, `requestVideoFrameCallback`).
    - `captureFromVideo(video) → Blob`.
 2. `image.ts`: `encodeFrame(canvas) → Blob` (WebP 0.9, ≤1920 px wide, check `blob.type`, JPEG fallback), `renderForExport(shot, highlight) → {bytes, width, height}` (JPEG 0.92, highlight burned in).
@@ -294,8 +295,8 @@ Each lane: one agent, `isolation: "worktree"`. The list order within each lane i
 1. **Token values** from the design canvas, in `globals.css`.
 2. `shell/AppHeader` `{ saveStatus; onStartNew?; children? }` (children = title + export slot).
 3. `upload/Dropzone` `{ onFile; disabled? }` and `upload/EmptyState` `{ onFile }` (formats, limits, how it works, privacy line).
-4. `upload/JobProgress` `{ job: running JobState; fileName; sizeBytes; onCancel }` (stage list, elapsed time not announced, indeterminate bar) and `upload/CaptureBanner` `{ done; total }` (the compact banner shown above the editor while capturing).
-5. `feedback/ErrorPanel` `{ error; onPrimary; onSecondary? }` (copy from `ERROR_COPY`, focuses its heading on mount, no `role="alert"`), `feedback/Banner` `{ tone; children; action? }`, `feedback/ConfirmDialog` `{ open; kind: "start_new" | "replace"; onResolve(ok) }` (alert-dialog).
+4. `upload/JobProgress` `{ job: running JobState; video: VideoInfo; onCancel }` (stage list, elapsed time not announced, indeterminate bar, plus the long-video notice when `isLongVideo(video.durationSec)`; D16) and `upload/CaptureBanner` `{ done; total }` (the compact banner shown above the editor while capturing).
+5. `feedback/ErrorPanel` `{ error; onPrimary; onSecondary? }` (copy from `ERROR_COPY`, focuses its heading on mount, no `role="alert"`), `feedback/Banner` `{ tone; children; action? }` (also used for the long-video notice in the editor), `feedback/ConfirmDialog` `{ open; kind: "start_new" | "replace"; onResolve(ok) }` (alert-dialog).
 6. `project/ProjectTitle` `{ value; onChange }` (an inline-editable `h1` with `id={RESULTS_HEADING_ID}` and `tabIndex={-1}`), `project/ExportButton` `{ onExport(): Promise<void> }` (busy state + error toast), `project/NoSteps` `{ onAddStep }`.
 7. `app/error.tsx` and `/dev/states` (every component in every state, from fixtures).
 
@@ -413,7 +414,7 @@ jsdom + Testing Library + `user-event`. Each test file ends with `expect(await a
 1. Merge the lanes into `main` (order B, A, C, E, D, F, G) and run `pnpm check` **after each merge**. Ownership is disjoint, so conflicts only appear where a lane filled in its Phase 0 stub. Resolve those in favour of the lane.
 2. Apply the contract change requests and the spike findings (update D4/D5).
 3. **`pnpm test:e2e`** (fake Gemini). Fix failures until it's green. A failing spec is either a real bug or a spec that guessed the UI wrong; fix whichever is wrong, citing UX.md.
-4. **Live run** with the example videos (`GEMINI_LIVE=1 pnpm test:e2e --grep @live`, then by hand): the happy path, `.mov`, a video over 3 minutes, cancel mid-stage, refresh mid-edit, re-pick, highlight, add step, delete + undo, Start new, export, then open the `.docx` in Word. Record timings for DEBRIEF.
+4. **Live run** with the example videos (`GEMINI_LIVE=1 pnpm test:e2e --grep @live`, then by hand): the happy path, `.mov`, the 3:33 and 5:26 videos (long-video notice, D16), a video over 3 minutes, cancel mid-stage, refresh mid-edit, re-pick, highlight, add step, delete + undo, Start new, export, then open the `.docx` in Word. Record timings for DEBRIEF.
 5. Fix what breaks. **Cut order if short on time:** highlight editing (fall back to read-only), add-step frame capture, the "Replace current project?" confirm.
 
 ## Phase 3: Hardening (≈15 min, parallel)

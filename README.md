@@ -23,7 +23,7 @@ pnpm dev                     # http://localhost:3000
 
 ## What it does
 
-**Core:** upload a recording (MP4, MOV or WebM; up to 3 minutes and 500 MB) → Gemini returns timestamped steps → screenshots are captured at those timestamps in the browser → an editable list of steps.
+**Core:** upload a recording (MP4, MOV or WebM; best under 3 minutes, up to 10 minutes and 500 MB) → Gemini returns timestamped steps → screenshots are captured at those timestamps in the browser → an editable list of steps.
 
 **Beyond the core:**
 1. **Edit steps:** inline editing, add, delete with undo, and move up/down.
