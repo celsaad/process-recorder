@@ -9,7 +9,11 @@ import { AppError } from "@/lib/errors";
 import { FramePicker } from "./FramePicker";
 
 const captureFromVideo = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/frames", () => ({ captureFromVideo }));
+vi.mock("@/lib/frames", async (importOriginal) => ({
+  // Keep the real waitForFrameData (it polls readyState, which the tests drive); fake only the capture.
+  ...(await importOriginal<typeof import("@/lib/frames")>()),
+  captureFromVideo,
+}));
 
 // jsdom never decodes video; tests flip this to simulate "frame ready" (4) or "still loading" (0).
 let readyState = 4;
@@ -220,7 +224,7 @@ describe("FramePicker", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("Enter before the first frame is decoded waits for loadeddata instead of failing", async () => {
+  it("Enter before the frame is decoded waits for frame data instead of failing", async () => {
     readyState = 0;
     captureFromVideo.mockResolvedValue(shot);
     const onConfirm = vi.fn();

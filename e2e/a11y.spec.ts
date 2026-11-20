@@ -5,7 +5,7 @@ test.describe("axe scans (WCAG 2.2 AA)", () => {
   test("empty state", async ({ page }) => {
     await page.goto("/");
     await expect(
-      page.getByRole("button", { name: /drop a screen recording or choose a file/i }),
+      page.getByRole("button", { name: /^choose a recording/i }),
     ).toBeVisible();
     await expectNoAxeViolations(page);
   });

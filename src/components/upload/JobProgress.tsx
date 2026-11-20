@@ -93,7 +93,7 @@ export function JobProgress({ job, video, onCancel }: JobProgressProps) {
             Format, length and size are checked in your browser before anything is uploaded.
           </p>
         ) : (
-          <ol className="flex flex-col">
+          <ol aria-label="Processing stages" className="flex flex-col">
             {STAGES.map((s, i) => {
               const status = statusOf(s.stage, i);
               const last = i === STAGES.length - 1;

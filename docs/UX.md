@@ -4,7 +4,7 @@
 
 | State | What's on screen | Focus / announcement |
 |---|---|---|
-| **Empty (first visit)** | Dropzone ("Drop a screen recording or choose a file"), accepted formats, 10-minute / 500 MB limits ("best under 3 minutes"), a 3-step "how it works" | Page heading. Dropzone is the first tab stop after the header |
+| **Empty (first visit)** | Dropzone (button "Choose a recording", hint "or drop a file here"), accepted formats, 10-minute / 500 MB limits ("best under 3 minutes"), a 3-step "how it works" | Page heading. Dropzone is the first tab stop after the header |
 | **Restored project** | The editor with the last project, plus "Start new" | Status: "Restored your last project" |
 | **Validating** | Brief inline spinner on the dropzone (milliseconds) | None |
 | **Uploading** | Stage list (Receiving ▸ Sending to Gemini ▸ Gemini processing ▸ Analyzing ▸ Screenshots), with elapsed time on the active stage, an indeterminate bar, file name/size, **Cancel** | Status: stage name on each change |

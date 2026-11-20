@@ -10,7 +10,7 @@ test("Cancel during a slow job returns to the empty state and announces it", asy
 
   await expect(page.getByRole("status")).toContainText(/cancelled/i);
   const dropzone = page.getByRole("button", {
-    name: /drop a screen recording or choose a file/i,
+    name: /^choose a recording/i,
   });
   await expect(dropzone).toBeVisible();
   await expect(dropzone).toBeEnabled();

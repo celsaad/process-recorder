@@ -202,7 +202,34 @@ function drawFrame(video: HTMLVideoElement): HTMLCanvasElement {
 /** Captures the frame currently shown by a (visible) video element. */
 export async function captureFromVideo(video: HTMLVideoElement): Promise<Blob> {
   await settle(video, SEEK_TIMEOUT_MS);
+  // Right after a seek lands, Chrome can still report HAVE_METADATA (readyState 1)
+  // until the frame is decoded. Wait for the data instead of failing the capture.
+  await waitForFrameData(video, SEEK_TIMEOUT_MS);
   return encodeFrame(drawFrame(video));
+}
+
+/** Resolves once the element has decoded data for the current position (readyState >= 2)
+ *  and isn't seeking. Polls the condition: `loadeddata` fires only once per load, and
+ *  readiness events after a seek aren't reliable across engines. Rejects `capture_failed`
+ *  on a media error or timeout. */
+export function waitForFrameData(video: HTMLVideoElement, timeoutMs: number, pollMs = 30): Promise<void> {
+  const ready = () => video.readyState >= 2 && !video.seeking;
+  if (ready()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (video.error) {
+        clearInterval(timer);
+        reject(new AppError("capture_failed"));
+      } else if (ready()) {
+        clearInterval(timer);
+        resolve();
+      } else if (Date.now() - started > timeoutMs) {
+        clearInterval(timer);
+        reject(new AppError("capture_failed"));
+      }
+    }, pollMs);
+  });
 }
 
 /** After a seek, waits until the new frame is actually presented (so the canvas isn't one frame stale). */

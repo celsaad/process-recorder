@@ -20,8 +20,6 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # TODO: remove continue-on-error once the app lanes (A-F) have merged and the specs pass.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

@@ -24,7 +24,9 @@ export async function useScenario(page: Page, name: Scenario): Promise<void> {
 
 /** Chooses a file through the hidden file input behind the dropzone. */
 export async function uploadSample(page: Page, file: string = TINY_WEBM): Promise<void> {
-  await page.locator('input[type="file"]').setInputFiles(file);
+  // The dropzone and the page (ErrorPanel "Choose another file") each own a hidden
+  // file input; both feed the same onFile handler, so either works.
+  await page.locator('input[type="file"]').first().setInputFiles(file);
 }
 
 /** Records every request to /api/upload, so specs can assert "no upload happened". */
@@ -83,6 +85,15 @@ export async function expectProjectStored(page: Page, text: string): Promise<voi
 
 /** WCAG 2.2 AA scan of the whole page. */
 export async function expectNoAxeViolations(page: Page): Promise<void> {
+  // Let enter animations (e.g. the dialog's fade/zoom) finish first; scanning
+  // mid-fade measures half-transparent text and reports false contrast failures.
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      // Infinite animations (the indeterminate progress bar) never finish.
+      .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+      .every((a) => a.playState !== "running"),
+  );
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
     .analyze();

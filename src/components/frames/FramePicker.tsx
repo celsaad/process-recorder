@@ -12,8 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { useAnnounce } from "@/components/shell/LiveRegion";
-import { AppError, toAppError } from "@/lib/errors";
-import { captureFromVideo } from "@/lib/frames";
+import { toAppError } from "@/lib/errors";
+import { captureFromVideo, waitForFrameData } from "@/lib/frames";
 import { formatTimestamp } from "@/lib/timestamp";
 import { stepHeadingDomId, type FramePickerProps } from "@/lib/ui-contracts";
 
@@ -112,6 +112,10 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
     try {
       // Let the newest seek land before drawing, or the screenshot would show an older frame.
       await waitForLoaded(video, LOAD_TIMEOUT_MS);
+      // The slider's seek runs in an effect after render, so an Enter pressed right
+      // after an arrow key can arrive before that seek starts. Request it here too
+      // (idempotent) so the wait below always covers the time being confirmed.
+      requestSeek(sec);
       await waitForSeek(video, pendingSeek, SEEK_SETTLE_TIMEOUT_MS);
       const shot = await captureFromVideo(video);
       if (!alive.current) return;
@@ -307,25 +311,9 @@ function waitForSeek(video: HTMLVideoElement, pending: { current: number | null 
   });
 }
 
-/** Resolves once the first frame is decoded, so an early Enter doesn't fail the capture. */
+/** Resolves once the current frame is decoded (readyState >= 2), so an early Enter doesn't fail the capture.
+ *  Polls the condition rather than waiting for `loadeddata`, which fires only once per load and never
+ *  again after a seek, so an Enter pressed mid-seek would otherwise wait out the whole timeout. */
 function waitForLoaded(video: HTMLVideoElement, timeoutMs: number): Promise<void> {
-  if (video.readyState >= 2) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      clearTimeout(timer);
-      video.removeEventListener("loadeddata", onLoaded);
-      video.removeEventListener("error", onFail);
-    };
-    const onLoaded = () => {
-      cleanup();
-      resolve();
-    };
-    const onFail = () => {
-      cleanup();
-      reject(new AppError("capture_failed"));
-    };
-    const timer = setTimeout(onFail, timeoutMs);
-    video.addEventListener("loadeddata", onLoaded);
-    video.addEventListener("error", onFail);
-  });
+  return waitForFrameData(video, timeoutMs);
 }

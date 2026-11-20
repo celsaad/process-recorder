@@ -9,7 +9,7 @@ test("whole flow with the keyboard only", async ({ page }) => {
 
   // The dropzone is the first tab stop after the header; Enter opens the file chooser.
   const dropzone = page.getByRole("button", {
-    name: /drop a screen recording or choose a file/i,
+    name: /^choose a recording/i,
   });
   await tabTo(page, dropzone, 6);
   const chooserPromise = page.waitForEvent("filechooser");

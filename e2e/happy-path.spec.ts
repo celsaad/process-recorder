@@ -10,7 +10,7 @@ for (const [format, file] of [
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /drop a screen recording or choose a file/i }),
+      page.getByRole("button", { name: /^choose a recording/i }),
     ).toBeVisible();
 
     await uploadSample(page, file);

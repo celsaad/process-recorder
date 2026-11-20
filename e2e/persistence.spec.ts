@@ -3,7 +3,7 @@ import { expectProjectStored, uploadSample, useScenario, waitForReady } from "./
 
 test("edits and screenshots survive a reload; Start new clears them", async ({ page }) => {
   const dropzone = page.getByRole("button", {
-    name: /drop a screen recording or choose a file/i,
+    name: /^choose a recording/i,
   });
   await useScenario(page, "happy");
   await page.goto("/");
