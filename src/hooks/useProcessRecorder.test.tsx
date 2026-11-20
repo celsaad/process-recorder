@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { act, renderHook, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, cleanup, renderHook, screen, waitFor } from "@testing-library/react";
+import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LiveRegionProvider } from "@/components/shell/LiveRegion";
 import type { FakeApiClient, FakeApiOptions, FakePersistence } from "@/fixtures/fakes";
-import type { Recorder, Step, StepsAction, StepsState } from "@/lib/types";
+import type { DebouncedSaver, DebouncedSaverOptions } from "@/lib/persistence";
+import type { Project, Recorder, Step, StepsAction, StepsState } from "@/lib/types";
 
 type FramesFake = ReturnType<typeof import("@/fixtures/fakes").createFakeFrames>;
 
@@ -103,7 +104,10 @@ beforeEach(() => {
   setup();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Unmount (which aborts any job still running) so no work leaks into the next test's fakes.
+  cleanup();
+  await new Promise((r) => setTimeout(r, 5));
   document.body.innerHTML = "";
 });
 
@@ -269,7 +273,7 @@ describe("useProcessRecorder", () => {
     act(() => result.current.onFile(video()));
     await waitForPhase(result, "ready");
     expect(result.current.steps.steps).toEqual([]);
-    await waitFor(() => expect(liveRegion()).toHaveTextContent("No steps found"));
+    await waitFor(() => expect(liveRegion().textContent).toBe("No steps found. Add a step manually."));
   });
 
   it("a failed capture marks only that step", async () => {
@@ -387,6 +391,182 @@ describe("useProcessRecorder", () => {
       expect.any(Function),
     );
     expect(exportDocx.downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "create-a-purchase-order.docx");
+  });
+});
+
+/** Lane B's saver semantics: after cancel(), flush() still waits for a write already running. */
+function chainedSaver(opts: DebouncedSaverOptions = {}): DebouncedSaver {
+  let chain = Promise.resolve();
+  let pending: Project | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let gen = 0;
+  const flush = () => {
+    clearTimeout(timer);
+    const p = pending;
+    if (!p) return chain;
+    pending = null;
+    const g = gen;
+    chain = chain.then(async () => {
+      if (g !== gen) return;
+      opts.onStatus?.("saving");
+      await fx.persistence.saveProjectNow(p);
+      opts.onStatus?.("saved");
+    });
+    return chain;
+  };
+  return {
+    schedule: (p: Project) => {
+      pending = p;
+      clearTimeout(timer);
+      timer = setTimeout(() => void flush(), opts.ms ?? 500);
+    },
+    flush,
+    cancel: () => {
+      clearTimeout(timer);
+      pending = null;
+      gen++;
+    },
+  };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const restoredStore = (delayMs = 1) =>
+  createFakePersistence({ project: fixtureProject, video: new Blob(["v"]) }, { delayMs });
+
+describe("useProcessRecorder: races and lifecycle", () => {
+  it("cancel during analysis returns to idle, deletes the Gemini file and leaves nothing stored", async () => {
+    setup({ delayMs: 60 });
+    const { result } = render();
+    act(() => result.current.onFile(video()));
+    await waitFor(() => expect(result.current.job).toMatchObject({ phase: "running", stage: "analyzing" }));
+
+    act(() => result.current.cancel());
+    expect(result.current.job).toEqual({ phase: "idle" });
+    await sleep(200);
+    expect(result.current.job).toEqual({ phase: "idle" });
+    expect(fx.api.calls.delete).toEqual(["files/fake0001"]);
+    expect(fx.persistence.store).toMatchObject({ project: null, video: null });
+    await waitFor(() => expect(liveRegion()).toHaveTextContent("Cancelled"));
+  });
+
+  it("cancel during the first persist: no 'Saved', nothing stored, and the next file isn't a 'replace'", async () => {
+    fx.persistence = createFakePersistence({}, { delayMs: 150 });
+    const { result } = render();
+    await sleep(200); // restore finds nothing
+    act(() => result.current.onFile(video()));
+    await waitFor(() => expect(result.current.saveStatus).toBe("saving"), { timeout: 3000 });
+
+    act(() => result.current.cancel());
+    await sleep(400); // the in-flight saveProjectNow lands, then teardown's clearAll
+    expect(result.current.job).toEqual({ phase: "idle" });
+    expect(result.current.saveStatus).toBe("idle");
+    expect(fx.persistence.store.project).toBeNull();
+
+    act(() => result.current.onFile(video()));
+    await waitFor(() => expect(fx.api.calls.upload).toBe(2), { timeout: 3000 });
+    expect(result.current.pendingConfirm).toBeNull();
+  });
+
+  it("a file dropped while a job runs is ignored", async () => {
+    setup({ delayMs: 30 });
+    const { result } = render();
+    act(() => result.current.onFile(video()));
+    await waitFor(() => expect(result.current.job.phase).toBe("running"));
+    act(() => result.current.onFile(video()));
+    await waitForPhase(result, "ready");
+    expect(fx.api.calls).toMatchObject({ upload: 1, analyze: 1 });
+  });
+
+  it("a file dropped before restore resolves waits for it, then asks to replace", async () => {
+    fx.persistence = restoredStore(100);
+    const { result } = render();
+    act(() => result.current.onFile(video())); // loadAll still pending
+    await waitFor(() => expect(result.current.pendingConfirm).toBe("replace"), { timeout: 2000 });
+    expect(fx.api.calls.upload).toBe(0);
+
+    act(() => result.current.resolveConfirm(true));
+    await waitForPhase(result, "running");
+    await waitForPhase(result, "ready");
+    expect(fx.api.calls.delete).toEqual([fixtureProject.gemini!.fileName]);
+    expect(fx.persistence.store.project?.gemini?.fileName).toBe("files/fake0001");
+    expect(fx.persistence.store.project?.steps.map((s) => s.id)).not.toContain("step-1");
+  });
+
+  it("choosing another file after a failed analysis deletes the earlier Gemini file", async () => {
+    setup({ analyzeError: { kind: "rate_limited" } });
+    const { result } = render();
+    act(() => result.current.onFile(video()));
+    await waitForPhase(result, "error");
+
+    delete apiOptions.analyzeError;
+    act(() => result.current.onFile(video()));
+    await waitForPhase(result, "ready");
+    expect(result.current.pendingConfirm).toBeNull();
+    expect(fx.api.calls.delete).toEqual(["files/fake0001"]);
+    expect(fx.api.calls.upload).toBe(2);
+  });
+
+  it("start new while a save is in flight: the late write can't resurrect the project", async () => {
+    fx.persistence = restoredStore(150);
+    fx.persistence.createDebouncedSaver = chainedSaver;
+    const { result } = render();
+    await waitForPhase(result, "ready");
+
+    act(() => result.current.setTitle("Edited"));
+    await waitFor(() => expect(result.current.saveStatus).toBe("saving"), { timeout: 2000 });
+    act(() => result.current.startNew());
+    await act(async () => result.current.resolveConfirm(true));
+    await sleep(400);
+    expect(result.current.job).toEqual({ phase: "idle" });
+    expect(fx.persistence.store.project).toBeNull();
+  });
+
+  it("pagehide flushes the pending save immediately", async () => {
+    fx.persistence = restoredStore();
+    const { result } = render();
+    await waitForPhase(result, "ready");
+
+    act(() => result.current.setTitle("Flushed"));
+    act(() => void window.dispatchEvent(new Event("pagehide")));
+    await waitFor(() => expect(fx.persistence.store.project?.title).toBe("Flushed"), { timeout: 200 });
+  });
+
+  it("StrictMode: restores once and the effect re-run doesn't revoke live URLs", async () => {
+    fx.persistence = restoredStore();
+    for (const s of fixtureProject.steps) await fx.persistence.saveShot(s.id, new Blob([s.id]));
+    const strict = ({ children }: { children: ReactNode }) => (
+      <StrictMode>
+        <LiveRegionProvider>{children}</LiveRegionProvider>
+      </StrictMode>
+    );
+    const { result } = renderHook(() => useProcessRecorder(), { wrapper: strict });
+    await waitForPhase(result, "ready");
+    await sleep(20);
+    expect(Object.keys(result.current.shotUrls)).toHaveLength(4);
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it("unmount revokes every object URL", async () => {
+    fx.persistence = restoredStore();
+    for (const s of fixtureProject.steps) await fx.persistence.saveShot(s.id, new Blob([s.id]));
+    const { result, unmount } = render();
+    await waitForPhase(result, "ready");
+    unmount();
+    await sleep(10);
+    expect(revoke).toHaveBeenCalledTimes(5);
+  });
+
+  it("cancel while capturing announces 'Capture stopped' with the summary", async () => {
+    setup({}, { delayMs: 40 });
+    const { result } = render();
+    act(() => result.current.onFile(video()));
+    await waitFor(() => {
+      const j = result.current.job;
+      expect(j.phase === "running" && j.capture && j.capture.done >= 1).toBe(true);
+    });
+    act(() => result.current.cancel());
+    await waitForPhase(result, "ready");
+    await waitFor(() => expect(liveRegion().textContent).toBe("Capture stopped. 4 steps ready"));
   });
 });
 

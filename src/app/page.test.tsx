@@ -88,11 +88,21 @@ describe("Home page", () => {
     expect(shown("FramePicker")).toBe(false);
   });
 
-  it("running (not capturing) → JobProgress", () => {
-    rec.current = recorder(running("analyzing"));
+  it.each(["validating", "received", "analyzing"] as const)("running(%s) → JobProgress", (stage) => {
+    rec.current = recorder(running(stage));
     render(<Home />);
     expect(shown("JobProgress")).toBe(true);
+    expect(shown("EmptyState")).toBe(false);
     expect(shown("StepList")).toBe(false);
+    expect(screen.getByRole("main")).toContainElement(screen.getByTestId("JobProgress"));
+  });
+
+  it("AppHeader gets the title first and the actions as separate children", () => {
+    rec.current = recorder({ phase: "ready" });
+    render(<Home />);
+    const header = screen.getByTestId("AppHeader");
+    const kids = [...header.children].map((el) => el.getAttribute("data-testid"));
+    expect(kids).toEqual(["ProjectTitle", "ExportButton"]);
   });
 
   it("capturing → editor with CaptureBanner", () => {

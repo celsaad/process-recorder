@@ -119,6 +119,14 @@ export function useProcessRecorder(): Recorder {
   const busyShotsRef = useRef(new Set<string>());
   const focusResultsRef = useRef(false);
   const confirmResolverRef = useRef<((ok: boolean) => void) | null>(null);
+  /** IndexedDB writes still in flight; teardown waits for them before clearAll. */
+  const writesRef = useRef(new Set<Promise<void>>());
+  /** The storage half of the last teardown; a new job waits for it before writing. */
+  const cleanupRef = useRef<Promise<void>>(Promise.resolve());
+  /** Settles once the mount-time restore has finished (or found nothing). */
+  const restoreRef = useRef<Promise<void>>(Promise.resolve());
+  /** onFile is between the drop and the job's start (awaiting restore, confirm or cleanup). */
+  const startingRef = useRef(false);
 
   const setProject = useCallback((next: Project | null | ((p: Project | null) => Project | null)) => {
     projectRef.current = typeof next === "function" ? next(projectRef.current) : next;
@@ -160,14 +168,19 @@ export function useProcessRecorder(): Recorder {
 
   /** Persistence failures never stop the job: storage_full shows the banner, the editor keeps working in memory. */
   const persistSafe = useCallback(async (write: () => Promise<void>): Promise<boolean> => {
+    let pending: Promise<void> | undefined;
     try {
-      await write();
+      pending = write();
+      writesRef.current.add(pending);
+      await pending;
       return true;
     } catch (e) {
       const err = toAppError(e);
       if (err.kind === "storage_full") setStorageFull(true);
       else console.warn("Persistence failed", e);
       return false;
+    } finally {
+      if (pending) writesRef.current.delete(pending);
     }
   }, []);
 
@@ -230,13 +243,14 @@ export function useProcessRecorder(): Recorder {
 
   // ---------- teardown ----------
 
-  /** Drops the current job and project from memory and, unless `keepStorage`, from IndexedDB and Gemini. */
+  /** Drops the current job and project from memory, IndexedDB and Gemini (best effort). */
   const teardown = useCallback(
-    async (jobAction: "cancel" | "reset") => {
+    (jobAction: "cancel" | "reset"): Promise<void> => {
       genRef.current++;
       abortRef.current?.abort();
       abortRef.current = null;
-      saverRef.current?.cancel();
+      const saver = saverRef.current;
+      saver?.cancel();
       const fileName = projectRef.current?.gemini?.fileName ?? sourceRef.current?.gemini?.fileName;
       sourceRef.current = null;
       savedRef.current = false;
@@ -249,12 +263,18 @@ export function useProcessRecorder(): Recorder {
       jobDispatch({ type: jobAction });
       setSaveStatus("idle");
       setStorageFull(false);
-      await Promise.all([
-        fileName ? deleteGeminiFile(fileName).catch(() => {}) : Promise.resolve(),
-        persistSafe(clearAll),
-      ]);
+      // Let in-flight writes land first, so clearAll can't be overtaken and resurrect the project.
+      // flush() after cancel() only waits for a write already running.
+      const inFlight = [...writesRef.current, saver?.flush()];
+      const storage = (async () => {
+        await Promise.allSettled(inFlight);
+        await clearAll().catch((e: unknown) => console.warn("Couldn't clear storage", e));
+      })();
+      cleanupRef.current = storage;
+      const gemini = fileName ? deleteGeminiFile(fileName).catch(() => {}) : undefined;
+      return Promise.all([gemini, storage]).then(() => {});
     },
-    [releaseMedia, setProject, stepsDispatch, jobDispatch, persistSafe],
+    [releaseMedia, setProject, stepsDispatch, jobDispatch],
   );
 
   // ---------- the job ----------
@@ -351,19 +371,24 @@ export function useProcessRecorder(): Recorder {
         let from: RetryFrom;
         if ("file" in start) {
           const { file } = start;
+          // In-memory draft so JobProgress has the video info (from the File while validating,
+          // then the probe's); persisted only after analysis.
+          const draft = (video: VideoInfo): Project => ({
+            id: crypto.randomUUID(),
+            title: titleFromFileName(file.name),
+            video,
+            steps: [],
+            updatedAt: new Date().toISOString(),
+          });
+          setProject(
+            draft({ name: file.name, sizeBytes: file.size, mimeType: file.type, durationSec: 0, width: 0, height: 0 }),
+          );
           validateFile(file);
           const info = await probeVideo(file);
           check();
           source = { blob: file, info };
           sourceRef.current = source;
-          // In-memory draft so the progress screen has the video info; persisted after analysis.
-          setProject({
-            id: crypto.randomUUID(),
-            title: titleFromFileName(file.name),
-            video: info,
-            steps: [],
-            updatedAt: new Date().toISOString(),
-          });
+          setProject(draft(info));
           setVideoBlob(file);
           await persistSafe(() => saveVideo(file));
           check();
@@ -416,21 +441,25 @@ export function useProcessRecorder(): Recorder {
           // First persist of the project; autosave takes over from here.
           setSaveStatus("saving");
           const saved = await persistSafe(() => saveProjectNow(project));
+          check(); // cancelled during the first persist: teardown has already reset state and storage
           setSaveStatus(saved ? "saved" : "error");
           savedRef.current = true;
-          check();
         }
 
         resumeAt("capturing");
         await captureAll(gen, signal);
         if (!alive()) return;
+        const stopped = signal.aborted; // cancel() during capture
 
         focusResultsRef.current = true;
         abortRef.current = null;
         stageRef.current = null;
         jobDispatch({ type: "succeed" });
         const n = stepsRef.current.steps.length;
-        announce(n === 0 ? "No steps found" : `${n} ${n === 1 ? "step" : "steps"} ready`);
+        const summary =
+          n === 0 ? "No steps found. Add a step manually." : `${n} ${n === 1 ? "step" : "steps"} ready`;
+        // One message: a second announce() would replace the first before it is read.
+        announce(stopped ? `Capture stopped. ${summary}` : summary);
       } catch (e) {
         if (!alive() || signal.aborted) return;
         const err = toAppError(e);
@@ -458,7 +487,7 @@ export function useProcessRecorder(): Recorder {
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    restoreRef.current = (async () => {
       let loaded: Awaited<ReturnType<typeof loadAll>>;
       try {
         loaded = await loadAll();
@@ -495,30 +524,50 @@ export function useProcessRecorder(): Recorder {
     };
   }, [jobRef, stepsRef, jobDispatch, stepsDispatch, setProject, setVideoBlob, setShot, announce]);
 
-  // Unmount: stop the job and release every object URL.
-  useEffect(
-    () => () => {
-      genRef.current++;
-      abortRef.current?.abort();
-      for (const url of Object.values(shotUrlsRef.current)) URL.revokeObjectURL(url);
-      shotUrlsRef.current = {};
-      if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
-      videoUrlRef.current = null;
-      grabberRef.current?.dispose();
-      grabberRef.current = null;
-    },
-    [],
-  );
+  // Unmount: stop the job and release every object URL. Deferred one tick so that an effect
+  // re-run (StrictMode, Fast Refresh: cleanup then setup straight away) cancels it and the
+  // thumbnails keep working; only a real unmount gets as far as revoking.
+  const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const releaseOnUnmount = useCallback(() => {
+    genRef.current++;
+    abortRef.current?.abort();
+    for (const url of Object.values(shotUrlsRef.current)) URL.revokeObjectURL(url);
+    shotUrlsRef.current = {};
+    if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+    videoUrlRef.current = null;
+    grabberRef.current?.dispose();
+    grabberRef.current = null;
+  }, []);
+  useEffect(() => {
+    if (unmountTimerRef.current) clearTimeout(unmountTimerRef.current);
+    unmountTimerRef.current = null;
+    return () => {
+      unmountTimerRef.current = setTimeout(releaseOnUnmount, 0);
+    };
+  }, [releaseOnUnmount]);
 
   // ---------- Recorder actions ----------
 
   const onFile = useCallback(
     (file: File) => {
+      // One file at a time: a second drop while this one waits (restore, confirm, cleanup) or runs is ignored.
+      if (startingRef.current || jobRef.current.phase === "running") return;
+      startingRef.current = true;
       void (async () => {
-        if (jobRef.current.phase === "running") return;
-        if (savedRef.current) {
-          if (!(await askConfirm("replace"))) return;
-          await teardown("reset");
+        try {
+          // Wait for the mount-time restore, so a restored project is confirmed and cleared
+          // rather than left in IndexedDB under the new video.
+          await restoreRef.current;
+          if (savedRef.current) {
+            if (!(await askConfirm("replace"))) return;
+            await teardown("reset");
+          } else if (sourceRef.current || projectRef.current) {
+            // An unsaved earlier attempt (e.g. analysis failed): drop its Gemini file and stored video (D8).
+            await teardown("reset");
+          }
+          await cleanupRef.current;
+        } finally {
+          startingRef.current = false;
         }
         await runJob({ file });
       })();
@@ -540,6 +589,7 @@ export function useProcessRecorder(): Recorder {
   const cancel = useCallback(() => {
     if (jobRef.current.phase !== "running") return;
     if (stageRef.current === "capturing") {
+      // Defensive path: CaptureBanner has no Cancel today, so the UI can't reach this.
       // The project already exists: stop capturing and finish with "Pick frame" placeholders.
       abortRef.current?.abort();
       return;

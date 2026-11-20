@@ -62,6 +62,7 @@ export default function Home() {
       </div>
     );
   } else if (job.phase === "running" && project) {
+    // Includes `validating` ("Checking your recording"); the draft project carries the File's info.
     content = <JobProgress job={job} video={project.video} onCancel={r.cancel} />;
   } else if (job.phase === "error") {
     const copy = ERROR_COPY[job.error.kind];
@@ -83,19 +84,15 @@ export default function Home() {
       </ErrorPanel>
     );
   } else {
-    // idle, and the millisecond-long validating stage before the video is probed.
     content = <EmptyState onFile={r.onFile} />;
   }
 
   return (
     <>
       <AppHeader saveStatus={r.saveStatus} onStartNew={editor ? r.startNew : undefined}>
-        {editor && (
-          <>
-            <ProjectTitle value={editor.title} onChange={r.setTitle} />
-            <ExportButton onExport={r.exportDocx} />
-          </>
-        )}
+        {/* Separate children: AppHeader lays out the first as the title, the rest as actions. */}
+        {editor && <ProjectTitle value={editor.title} onChange={r.setTitle} />}
+        {editor && <ExportButton onExport={r.exportDocx} />}
       </AppHeader>
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6 sm:px-8">
         {r.storageFull && (
