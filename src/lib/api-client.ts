@@ -27,7 +27,7 @@ export async function uploadVideo(file: Blob, options: UploadOptions = {}): Prom
     const headers: Record<string, string> = {};
     if (file.type) headers["Content-Type"] = file.type;
     const res = await fetch("/api/upload", { method: "POST", body: file, headers, signal });
-    if (!res.body) throw new AppError("bad_model_output");
+    if (!res.body) throw new AppError("network");
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -42,31 +42,41 @@ export async function uploadVideo(file: Blob, options: UploadOptions = {}): Prom
       else throw new AppError(event.error.kind, event.error.detail);
     };
 
-    for (;;) {
-      let chunk: ReadableStreamReadResult<Uint8Array>;
-      try {
-        chunk = await reader.read();
-      } catch (e) {
-        // Browsers fail a dropped body stream with a bare TypeError("network error").
-        if (e instanceof TypeError) throw new AppError("network", undefined, { cause: e });
-        throw e;
+    try {
+      for (;;) {
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await reader.read();
+        } catch (e) {
+          // Browsers fail a dropped body stream with a bare TypeError("network error").
+          if (e instanceof TypeError) throw new AppError("network", undefined, { cause: e });
+          throw e;
+        }
+        const { done, value } = chunk;
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) handle(line);
+        if (ready) return ready;
       }
-      const { done, value } = chunk;
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) handle(line);
-      if (ready) {
-        void reader.cancel().catch(() => {});
-        return ready;
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        // An unparsable fragment after a clean close is a truncated stream: nothing was
+        // uploaded yet, so Retry must start over (network), not re-analyze.
+        try {
+          JSON.parse(buffer);
+        } catch (e) {
+          throw new AppError("network", undefined, { cause: e });
+        }
+        handle(buffer);
       }
+      // Stream ended without `ready` or `error`: the connection was cut.
+      if (!ready) throw new AppError("network");
+      return ready;
+    } finally {
+      reader.cancel().catch(() => {}); // release the reader on every exit path
     }
-    buffer += decoder.decode();
-    handle(buffer);
-    // Stream ended without `ready` or `error`: the connection was cut.
-    if (!ready) throw new AppError("network");
-    return ready;
   } catch (e) {
     throw toAppError(e);
   }
@@ -87,8 +97,11 @@ export async function analyzeVideo(
     try {
       json = await res.json();
     } catch (e) {
-      if (options.signal?.aborted) throw e;
-      throw new AppError("bad_model_output", undefined, { cause: e });
+      // Only a body that arrived but isn't JSON is a bad output; a dropped body is a network
+      // failure, and anything else (AbortError...) is classified by toAppError.
+      if (e instanceof SyntaxError) throw new AppError("bad_model_output", undefined, { cause: e });
+      if (e instanceof TypeError) throw new AppError("network", undefined, { cause: e });
+      throw e;
     }
     const parsed = AnalyzeResponseSchema.safeParse(json);
     if (!parsed.success) throw new AppError("bad_model_output", undefined, { cause: parsed.error });

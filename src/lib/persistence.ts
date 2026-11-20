@@ -1,6 +1,6 @@
 // Lane B. IndexedDB persistence with split keys (D8): `project`, `video`, `shot:<stepId>`.
 import { clear, get, set } from "idb-keyval";
-import { toAppError, type AppError } from "./errors";
+import { AppError, toAppError } from "./errors";
 import type { Project, SaveStatus } from "./types";
 
 export type DebouncedSaver = {
@@ -13,7 +13,7 @@ export type DebouncedSaver = {
 export type DebouncedSaverOptions = {
   ms?: number;
   onStatus?: (status: SaveStatus) => void;
-  /** QuotaExceededError → AppError("storage_full"). */
+  /** Any write failure → AppError("storage_full"). */
   onError?: (error: AppError) => void;
 };
 
@@ -21,43 +21,54 @@ const PROJECT_KEY = "project";
 const VIDEO_KEY = "video";
 const shotKey = (stepId: string) => `shot:${stepId}`;
 
-async function guarded<T>(op: () => Promise<T>): Promise<T> {
+// Module-level so `clearAll()` can wait for, and invalidate, writes queued by any saver.
+// `cancel()` and `clearAll()` bump the generation; queued writes from an older generation
+// are skipped, so a stale project can't land after "Start new" cleared the database.
+let generation = 0;
+let chain: Promise<void> = Promise.resolve(); // never rejects
+
+/** Every write failure surfaces as storage_full: its copy ("changes won't survive a refresh")
+ *  is accurate whatever IndexedDB complained about. The original stays as `cause`. */
+async function write(op: () => Promise<void>): Promise<void> {
   try {
-    return await op();
+    await op();
+  } catch (e) {
+    throw new AppError("storage_full", undefined, { cause: e });
+  }
+}
+
+export async function loadAll(): Promise<{ project: Project; video: Blob } | null> {
+  try {
+    const [project, video] = await Promise.all([get<Project>(PROJECT_KEY), get<Blob>(VIDEO_KEY)]);
+    return project && video ? { project, video } : null;
   } catch (e) {
     throw toAppError(e);
   }
 }
 
-export async function loadAll(): Promise<{ project: Project; video: Blob } | null> {
-  return guarded(async () => {
-    const [project, video] = await Promise.all([get<Project>(PROJECT_KEY), get<Blob>(VIDEO_KEY)]);
-    return project && video ? { project, video } : null;
-  });
-}
-
 export async function saveProjectNow(project: Project): Promise<void> {
-  return guarded(() => set(PROJECT_KEY, project));
+  return write(() => set(PROJECT_KEY, project));
 }
 
 export function createDebouncedSaver(options: DebouncedSaverOptions = {}): DebouncedSaver {
   const { ms = 500, onStatus, onError } = options;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pending: Project | null = null;
-  let inFlight: Promise<void> = Promise.resolve();
 
   const clearTimer = () => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
   };
 
-  const write = (): Promise<void> => {
+  const flush = (): Promise<void> => {
     clearTimer();
     const project = pending;
-    if (!project) return inFlight;
+    if (!project) return chain; // also waits for a write already in flight
     pending = null;
-    // Chain so writes land in order and flush() awaits the one in flight.
-    inFlight = inFlight.then(async () => {
+    const gen = generation;
+    chain = chain.then(async () => {
+      if (gen !== generation) return; // cancelled or cleared while queued
+      onStatus?.("saving");
       try {
         await saveProjectNow(project);
         // A newer edit scheduled meanwhile reports its own status.
@@ -67,36 +78,46 @@ export function createDebouncedSaver(options: DebouncedSaverOptions = {}): Debou
         onError?.(toAppError(e));
       }
     });
-    return inFlight;
+    return chain;
   };
 
   return {
     schedule(project) {
       pending = project;
-      onStatus?.("saving");
       clearTimer();
-      timer = setTimeout(() => void write(), ms);
+      timer = setTimeout(() => void flush(), ms);
     },
-    flush: write,
+    flush,
     cancel() {
       clearTimer();
       pending = null;
+      generation++;
     },
   };
 }
 
 export async function saveVideo(blob: Blob): Promise<void> {
-  return guarded(() => set(VIDEO_KEY, blob));
+  return write(() => set(VIDEO_KEY, blob));
 }
 
 export async function saveShot(stepId: string, blob: Blob): Promise<void> {
-  return guarded(() => set(shotKey(stepId), blob));
+  return write(() => set(shotKey(stepId), blob));
 }
 
 export async function loadShot(stepId: string): Promise<Blob | null> {
-  return guarded(async () => (await get<Blob>(shotKey(stepId))) ?? null);
+  try {
+    return (await get<Blob>(shotKey(stepId))) ?? null;
+  } catch (e) {
+    throw toAppError(e);
+  }
 }
 
 export async function clearAll(): Promise<void> {
-  return guarded(() => clear());
+  generation++;
+  await chain; // let a write already in flight finish so it can't land after the clear
+  try {
+    await clear();
+  } catch (e) {
+    throw toAppError(e);
+  }
 }

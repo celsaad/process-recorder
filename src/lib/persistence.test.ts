@@ -103,7 +103,7 @@ describe("createDebouncedSaver", () => {
 
     expect(set).toHaveBeenCalledTimes(1);
     expect(set.mock.calls[0][1]).toMatchObject({ title: "3" });
-    expect(statuses).toEqual(["saving", "saving", "saving", "saved"]);
+    expect(statuses).toEqual(["saving", "saved"]);
   });
 
   it("flush writes immediately and cancels the timer", async () => {
@@ -162,6 +162,63 @@ describe("createDebouncedSaver", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].kind).toBe("storage_full");
     expect(statuses).toEqual(["saving", "error"]);
+  });
+
+  it("a non-quota write failure is also storage_full, keeping the cause", async () => {
+    const cause = new Error("boom");
+    setMock.mockRejectedValue(cause);
+    const e = await saveShot("s", new Blob(["x"])).catch((x: AppError) => x);
+    expect(e).toMatchObject({ kind: "storage_full" });
+    expect((e as AppError).cause).toBe(cause);
+  });
+
+  it("cancel before the timer fires reports no status at all", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const statuses: SaveStatus[] = [];
+    const saver = createDebouncedSaver({ onStatus: (s) => statuses.push(s) });
+    saver.schedule(project());
+    saver.cancel();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(statuses).toEqual([]);
+  });
+
+  it("flush while a write is in flight waits for it", async () => {
+    let release!: () => void;
+    setMock.mockImplementationOnce(
+      (key, value) => new Promise<void>((r) => (release = () => void realSet(key, value).then(r))),
+    );
+    const saver = createDebouncedSaver();
+    saver.schedule(project("A"));
+    const first = saver.flush();
+    let done = false;
+    const second = saver.flush().then(() => (done = true)); // nothing pending: waits on the chain
+    await new Promise((r) => setTimeout(r, 10));
+    expect(done).toBe(false);
+    release();
+    await Promise.all([first, second]);
+    expect(done).toBe(true);
+    await saveVideo(new Blob(["v"]));
+    expect((await loadAll())?.project.title).toBe("A");
+  });
+
+  it("cancel + clearAll while A is writing and B is queued leaves no project behind", async () => {
+    let release!: () => void;
+    setMock.mockImplementationOnce(
+      (key, value) => new Promise<void>((r) => (release = () => void realSet(key, value).then(r))),
+    );
+    const saver = createDebouncedSaver();
+    saver.schedule(project("A"));
+    const a = saver.flush(); // A in flight (slow)
+    await new Promise((r) => setTimeout(r, 10)); // let A reach idb.set
+    saver.schedule(project("B"));
+    const b = saver.flush(); // B queued behind A
+    saver.cancel();
+    const cleared = clearAll(); // must wait for A, and B must be skipped
+    release();
+    await Promise.all([a, b, cleared]);
+    expect(await idb.get("project")).toBeUndefined();
+    expect(await idb.keys()).toEqual([]);
+    expect(setMock).toHaveBeenCalledTimes(1); // B never wrote
   });
 
   it("saveShot surfaces storage_full as an AppError", async () => {

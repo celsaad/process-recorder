@@ -75,9 +75,9 @@ describe("uploadVideo", () => {
     expect(stages).toEqual(["received", "sending_to_gemini"]);
   });
 
-  it("splits a multi-byte character across chunks", async () => {
+  it("splits a multi-byte character across chunks inside a parsed line", async () => {
     const bytes = enc.encode(
-      '{"type":"ready","fileName":"files/a","mimeType":"video/mp4"}\n{"type":"error","error":{"kind":"not_screen_recording","detail":"café"}}\n',
+      '{"type":"stage","stage":"received"}\n{"type":"ready","fileName":"files/café","mimeType":"video/mp4"}\n',
     );
     const cut = bytes.indexOf(0xc3) + 1; // between the two bytes of "é"
     const body = new ReadableStream<Uint8Array>({
@@ -88,8 +88,29 @@ describe("uploadVideo", () => {
       },
     });
     mockFetch(async () => new Response(body));
-    // `ready` comes first, so the upload succeeds and the trailing error is never read.
-    await expect(uploadVideo(video)).resolves.toEqual({ fileName: "files/a", mimeType: "video/mp4" });
+    await expect(uploadVideo(video)).resolves.toEqual({ fileName: "files/café", mimeType: "video/mp4" });
+  });
+
+  it("a truncated trailing fragment after a clean close → network", async () => {
+    mockFetch(async () =>
+      streamResponse(['{"type":"stage","stage":"received"}\n{"type":"ready","fileNa']),
+    );
+    expect((await rejection(uploadVideo(video))).kind).toBe("network");
+  });
+
+  it("a response with no body → network", async () => {
+    mockFetch(async () => new Response(null));
+    expect((await rejection(uploadVideo(video))).kind).toBe("network");
+  });
+
+  it.each([
+    ["missing_api_key", 500, '{"type":"error","error":{"kind":"missing_api_key"}}\n', undefined],
+    ["unsupported_type", 415, '{"type":"error","error":{"kind":"unsupported_type","detail":".pdf"}}\n', ".pdf"],
+  ] as const)("pre-stream %s rejection parses on a %i", async (kind, status, line, detail) => {
+    mockFetch(async () => streamResponse([line], status));
+    const e = await rejection(uploadVideo(video));
+    expect(e.kind).toBe(kind);
+    expect(e.detail).toBe(detail);
   });
 
   it("throws the AppError from an error event, even on a non-200 response", async () => {
@@ -205,6 +226,20 @@ describe("analyzeVideo", () => {
   it("does not branch on status: ok body on a 500 still succeeds", async () => {
     mockFetch(async () => json(fixture("analyze-ok.json"), 500));
     await expect(analyzeVideo("files/abc")).resolves.toMatchObject({ processTitle: "Create a purchase order" });
+  });
+
+  it("file_expired on a 404", async () => {
+    mockFetch(async () => json({ ok: false, error: { kind: "file_expired" } }, 404));
+    expect((await rejection(analyzeVideo("files/abc"))).kind).toBe("file_expired");
+  });
+
+  it("body stream dropped mid-read → network, not bad_model_output", async () => {
+    mockFetch(async () => {
+      const res = json("{}");
+      vi.spyOn(res, "json").mockRejectedValue(new TypeError("network error"));
+      return res;
+    });
+    expect((await rejection(analyzeVideo("files/abc"))).kind).toBe("network");
   });
 
   it("non-JSON body → bad_model_output", async () => {
