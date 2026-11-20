@@ -251,7 +251,7 @@ Validation that can run in the browser runs there first, so obviously bad files 
 
 ## D11. Export: Word only
 
-**Status:** Built: A4 landscape, 5-column table, screenshots with the highlight burned in.
+**Status:** Built: A4 landscape, screenshots with the highlight burned in. The columns come from an export template (D17); the default is the 5-column table.
 
 **Decision.** Build `.docx` **client-side** with the `docx` library:
 - A **landscape** page with the title, then a table with columns *# · Action · Description · Expected result · Screenshot*.
@@ -334,6 +334,27 @@ Five layers, each catching a different class of bug:
 
 ---
 
+## D17. Export templates: client-specific Word columns, without changing step data
+
+**Status:** Built at the end of the build window (PR #12).
+
+**Context.** The brief says the output "has to end up in a client's template", and it suggests "custom columns for different clients". Full per-step custom fields were cut (D15).
+
+**Decision.** An "Export options" dialog next to Export to Word:
+- Show, hide, reorder and rename the built-in columns.
+- Add **blank tester columns** (e.g. "Pass/Fail", "Actual result"), exported as empty cells for testers to fill in.
+- Save **named presets per client**. The built-in "Default" is the original 5 columns and can't be deleted.
+
+`buildDocx` takes the template and renders only the visible columns, in order; the default output is unchanged.
+
+**Why export-only.** It answers the client-template need without changing `Step`, the editor, persistence or migrations, so it's low risk to add late.
+
+**Why localStorage, not IndexedDB (D8).** D8 chose IndexedDB for multi-MB blobs. Templates are a few hundred bytes of JSON settings, and they belong to the user's browser rather than to one project. localStorage is synchronous, simpler, and survives "Start new". Reads are validated with zod **per preset**, so one corrupt entry can't wipe the others (a review finding). Storage that throws (Safari private mode) falls back to the default.
+
+**Next.** Real per-step custom fields, or importing a client's own `.docx` template and mapping fields into it.
+
+---
+
 ## D15. Scope cuts (deliberate)
 
 The reviewer estimated the original plan at 6–8 hours. These cuts are ordered from most risk for least value:
@@ -343,7 +364,7 @@ The reviewer estimated the original plan at 6–8 hours. These cuts are ordered 
 3. **dnd-kit drag reordering.** Move buttons are accessible and enough. Stretch goal.
 4. **Automatic rate-limit backoff with a countdown.** Manual retry instead, which needs no re-upload.
 5. **Multiple and free-drawn highlights.** One per step.
-6. **Custom columns per client.** They change the data model, editor and export at once. The docx builder takes a column list internally, so this is an extension, not a rewrite.
+6. **Custom columns per client (per-step data).** Fields you fill in per step inside the editor change the data model, editor and export at once, so they're still cut. *Partly recovered at the end:* export templates (D17) cover column choice, order, names and blank tester columns without touching step data.
 7. **Sampling-rate (fps) tuning and a "Regenerate" button.**
 8. **Accounts, multiple projects, sharing, a server-side job queue.**
 
@@ -371,6 +392,7 @@ An independent AI reviewer (a separate model with no stake in the plan) critique
 | D13 (design review) | Single-colour focus ring; live regions per component | Two-tone ring; one live region | Ring failed contrast on dark surfaces; duplicate announcements |
 | D3 | Native PNG | WebP stored (JPEG fallback), JPEG on export, max 1920 px | 2–5 MB per PNG would bloat the docx and storage. WebP keeps text sharper than JPEG. AVIF can't be encoded from a canvas. docx needs JPEG/PNG |
 | D15 | Markdown, print, dnd-kit, auto-backoff | Cut | Fit 3 hours |
+| D17 (late feature) | Custom columns cut | Export templates: columns, order, names, blank tester columns, presets | Covers the client-template need without changing step data |
 | D16 | Hard reject over 3:00 | Notice over 3:00, reject over 10:00 | Two of the provided example videos are 3:33 and 5:26 |
 | D14 | Unit tests on pure logic only | Five layers incl. component, contract, Playwright E2E with fake Gemini, CI | Requested. The contract fixtures also guard the parallel build |
 | D5 | `box_2d` both "length 4" and "`[]` if none" | Length 0 or 4; anything else → `[]` | Contradiction found in the plan review |
