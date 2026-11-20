@@ -42,4 +42,5 @@ pnpm dev                     # http://localhost:3000
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Every significant decision: context, alternatives, tradeoffs, plus the review log |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Request flow, API contracts, module map, data model |
 | [docs/UX.md](docs/UX.md) | Every UI state, debouncing, keyboard flow, a11y checklist |
+| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | Build plan: shared contracts and parallel lanes for concurrent agents |
 | [docs/DEBRIEF.md](docs/DEBRIEF.md) | Walkthrough script and talking points for the debrief |
