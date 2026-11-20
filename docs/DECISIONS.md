@@ -235,8 +235,8 @@ A "Saving… / Saved" indicator sits in the header.
 | `undecodable` | client (load probe + timeout) | "This video can't be played here. Re-export it as H.264 MP4." | Choose another file |
 | `network` | client | "Connection lost." | Retry from the failed stage |
 | `rate_limited` (429) | server | "Gemini is rate-limiting requests. Wait a moment and try again." | Retry (no re-upload) |
-| `gemini_failed` (5xx / file `FAILED` / poll timeout) | server | "Gemini couldn't process the video." | Retry / choose another file |
-| `gemini_blocked` (`SAFETY` / empty) | server | "Gemini declined to analyze this video." | Choose another file |
+| `gemini_failed` (5xx / file `FAILED` / poll timeout / `finishReason` `OTHER` or unknown) | server | "Gemini couldn't process the video." | Retry / choose another file |
+| `gemini_blocked` (safety-family `finishReason`, `ESCALATION`, `PUP_LIMITED_DISABLED`, `LANGUAGE`, or an empty response) | server | "Gemini declined to analyze this video." | Choose another file |
 | `bad_model_output` (zod / `MAX_TOKENS`) | server | "The AI's response came back incomplete." | Retry analysis (no re-upload) |
 | `file_expired` | server (`files.get` 404, e.g. retrying analysis on a project restored after 48 h) | "The uploaded video expired. We'll upload it again from your browser." | Retry (re-uploads from the stored video blob) |
 | `not_screen_recording` | model flag | The model's `rejectionReason` + what a good recording looks like | Choose another file |
