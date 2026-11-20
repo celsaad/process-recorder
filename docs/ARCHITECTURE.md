@@ -60,16 +60,23 @@ src/
     steps-reducer.ts         # steps reducer (D7, tested)
     frames.ts                # load probe + seek-and-capture with timeouts (D3)
     persistence.ts           # IndexedDB keys + debounced project save (D8)
-    export-docx.ts           # docx builder (D11)
+    export-docx.ts           # docx builder; renders an export template's visible columns (D11, D17)
+    export-template.ts       # template model, pure helpers, localStorage presets (D17)
+    limits.ts                # size/length limits, MIME inference for type-less files (D16, D10)
+    normalize.ts             # server-side step normalization + cleanText (D5)
     api-client.ts            # uploadVideo / analyzeVideo / deleteGeminiFile, NDJSON reader
   components/
     upload/Dropzone.tsx
-    upload/JobProgress.tsx   # stage list + elapsed time + live region + cancel
+    shell/AppShell.tsx       # app-wide providers, incl. the single aria-live region (useAnnounce, D13)
+    shell/AppHeader.tsx      # sticky header with title / actions slots, save status
+    upload/JobProgress.tsx   # stage list + elapsed time + cancel (silent; the hook announces)
     editor/StepList.tsx
     editor/StepCard.tsx      # inline fields, move/delete buttons, frame button
     frames/FramePicker.tsx   # dialog with scrubber (feature 2)
     highlight/HighlightEditor.tsx  # SVG overlay, pointer + keyboard (feature 4)
-    export/ExportButton.tsx
+    project/ExportButton.tsx # Export to Word, busy state, non-live failure message
+    project/ExportOptions.tsx # Export options dialog: columns, blank columns, presets (D17)
+    feedback/ErrorPanel.tsx, ConfirmDialog.tsx, Banner.tsx
     ui/…                     # shadcn components
 ```
 

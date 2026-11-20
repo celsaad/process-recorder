@@ -57,7 +57,7 @@ There are deliberately **no custom shortcuts inside step cards**. The fields are
 - [ ] Focus moved deliberately: after capture, after delete, on error, on dialog close
 - [ ] Screenshot `alt` = "Screenshot for step N". Decorative icons are `aria-hidden`
 - [ ] No time limits: the inline Undo row stays until dismissed (2.2.1)
-- [ ] Two-tone focus ring visible on white, grey and dark surfaces
+- [ ] Three-band focus ring (white / blue / white) visible on white, grey, primary-blue and dark surfaces
 - [ ] End-of-list Move buttons are `aria-disabled` and keep focus
 - [ ] Visible labels are a prefix of accessible names (2.5.3). Repeated buttons include the step number
 - [ ] Text and UI contrast ≥ 4.5:1 / 3:1

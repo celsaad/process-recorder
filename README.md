@@ -42,6 +42,7 @@ CI (GitHub Actions) runs `pnpm check` and the E2E suite on every push and PR.
 1. **Edit steps:** inline editing, add, delete with undo, and move up/down.
 2. **Re-pick a screenshot:** scrub to a different moment in the video and use that frame.
 3. **Export to Word:** a .docx table with screenshots, ready to paste into a client template.
+5. **Export templates:** choose, reorder and rename the Word columns, add blank tester columns (e.g. "Pass/Fail", "Actual result"), and save presets per client.
 4. **Suggested highlights:** Gemini proposes a box around the element acted on in each step. You can move, resize, remove or add one, with the mouse or the keyboard.
 
 **Throughout:** stage-by-stage progress with cancel, specific errors that say what to do next, autosave to the browser (survives a refresh), and keyboard and screen-reader support.

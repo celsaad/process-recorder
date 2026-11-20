@@ -16,7 +16,7 @@ A 30-minute walkthrough. Fill in the "Actual" section and the measured numbers a
 4. Re-pick a frame with the scrubber (arrow keys).
 5. Adjust the Gemini-suggested highlight.
 6. **Refresh the page**: everything is still there.
-7. Export to Word → open the file.
+7. **Export options** → hide Description, rename "Expected result", add a blank "Pass/Fail" column, save as preset "Acme" → Export to Word → open the file.
 
 ## 3. Technical choices worth explaining (10 min)
 
@@ -33,17 +33,17 @@ A 30-minute walkthrough. Fill in the "Actual" section and the measured numbers a
 | Length limits | The brief said under 3 minutes but the example videos weren't, so I warn at 3 and reject at 10 | D16 |
 | Error taxonomy | Every error has a cause, a message and a next action. 16 kinds | D10 |
 | No shortcuts in textareas | Buttons + Tab order beat clever shortcuts that break editing | D12 |
+| Export templates, export-only | Client columns and blank tester columns without touching step data; presets in localStorage (tiny settings, unlike D8's blobs) | D17 |
 
 ## 4. What I cut and why (3 min)
 
-From [D15](DECISIONS.md#d15-scope-cuts-deliberate): Markdown/print export, drag reordering, automatic rate-limit backoff, multiple highlights, **custom columns**, fps tuning, accounts. Each was cut for risk vs value inside 3 hours, and each has a clear extension point.
+From [D15](DECISIONS.md#d15-scope-cuts-deliberate): Markdown/print export, drag reordering, automatic rate-limit backoff, multiple highlights, **per-step custom fields**, fps tuning, accounts. Each was cut for risk vs value inside 3 hours, and each has a clear extension point. With time left at the end, the export-only half of custom columns came back as templates (D17).
 
 ## 5. What I'd do next (4 min)
 
 - **Production upload path:** direct-to-storage upload, a job queue + SSE so a closed tab doesn't kill a job (D1).
-- **Custom columns / client templates:** column config feeding the editor and docx builder. Then: upload a client's .docx template and map fields into it.
+- **Beyond export templates (D17):** per-step custom fields in the editor, then uploading a client's own .docx template and mapping fields into it.
 - **Quality loop:** let users flag wrong steps and use them as eval cases. Compare models on the example set (timestamp drift, missed steps, box accuracy).
-- **Playwright e2e tests** with a recorded Gemini response fixture.
 - **Collaboration:** projects stored server-side, share links, reviewer comments.
 
 ## 6. Risks and what I'd check with users (3 min)
@@ -74,6 +74,7 @@ From [D15](DECISIONS.md#d15-scope-cuts-deliberate): Markdown/print export, drag 
 3. **Contracts, then parallel lanes.** A foundation phase wrote the shared types, error copy and component props, plus real implementations of the small shared modules. Seven agents then built lanes A–G in separate git worktrees, each owning a disjoint set of files ([IMPLEMENTATION.md](IMPLEMENTATION.md)).
 4. **One reviewer per PR, merge on approval.** Every lane went through PR → review → fix rounds → squash-merge, with the merged result checked before each merge. No PR needed a third round. Deferred nits went to a Follow-ups issue.
 5. **Integration in a real browser.** The E2E suite and live runs with the sample videos found what unit tests couldn't (below).
+6. **Follow-ups, then one more feature.** Deferred review findings were collected on a GitHub issue and fixed in three parallel PRs (server, media, shell). Export templates were then built and reviewed in the remaining time, and that review caught a preset data-loss bug before merge. In all: 12 PRs, each reviewed, none needing a third round.
 
 ## Actual
 
@@ -93,4 +94,4 @@ From [D15](DECISIONS.md#d15-scope-cuts-deliberate): Markdown/print export, drag 
 
 **If I had another hour**
 - Keep: everything in the editor and the error taxonomy. Those are what a consultant touches all day.
-- Add: custom columns / client templates (the docx builder already takes a column list), then a quality loop (flag wrong steps → eval set).
+- Add: a quality loop (flag wrong steps → eval set), motivated by the step-count variance in the measured runs, then per-step custom fields.

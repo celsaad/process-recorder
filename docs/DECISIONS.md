@@ -282,7 +282,7 @@ Validation that can run in the browser runs there first, so obviously bad files 
 
 ## D13. Accessibility baseline
 
-**Status:** Built: keyboard-only and axe checks run in the E2E suite (`keyboard.spec.ts`, `a11y.spec.ts`). Follow-up in progress: exactly one live region (the toast library adds a second).
+**Status:** Built: keyboard-only and axe checks run in the E2E suite (`keyboard.spec.ts`, `a11y.spec.ts`). Exactly one live region: the toast library was removed in the follow-ups (#11) because its container always adds a second `aria-live` region.
 
 Target: WCAG 2.2 AA where it applies. We check it with **a keyboard-only walkthrough and an axe pass, and list known gaps in this doc** rather than claiming full conformance after a 3-hour build.
 
@@ -294,7 +294,7 @@ Target: WCAG 2.2 AA where it applies. We check it with **a keyboard-only walkthr
 - Dialogs return focus to their trigger.
 - Every input has a visible label.
 - Screenshot `alt` = "Screenshot for step 3". The action text sits right next to it, so repeating it in the alt would be redundant.
-- Visible focus rings that are **two-tone** (2 px blue `#1D5BD6` plus a 2 px white outer ring). A single blue ring measured 2.98:1 on the dark toast and as low as 1.02:1 over dark screenshot content. `prefers-reduced-motion` is respected, and the palette meets AA contrast (all text pairs measured 5.6:1 or better).
+- Visible focus rings with **three bands** (white / blue `#1D5BD6` / white). A single blue ring measured 2.98:1 on the dark toast and as low as 1.02:1 over dark screenshot content. `prefers-reduced-motion` is respected, and the palette meets AA contrast (all text pairs measured 5.6:1 or better).
 - Exactly **one** live region, in the shell. Banners and rows don't carry their own `role="status"`.
 
 ---
@@ -389,7 +389,7 @@ An independent AI reviewer (a separate model with no stake in the plan) critique
 | D10 | 12 kinds | Added `missing_api_key`, `file_expired`, `gemini_blocked`, `storage_full`, poll timeout | Gaps an interviewer would probe |
 | D13 | `role="alert"` + focus move; 5 s undo toast | Focus move only; undo stays until dismissed | Double announcement; WCAG 2.2.1 |
 | D12 (design review) | Floating Undo toast; native `disabled` move buttons; highlight on a separate surface | Inline deleted-step row; `aria-disabled`; highlight edited in the card | Toast unreachable by keyboard at 20 steps; focus lost on disable; plan/design mismatch |
-| D13 (design review) | Single-colour focus ring; live regions per component | Two-tone ring; one live region | Ring failed contrast on dark surfaces; duplicate announcements |
+| D13 (design review) | Single-colour focus ring; live regions per component | Two-tone ring (later three bands, white/blue/white, after the Lane D review); one live region | Ring failed contrast on dark surfaces; duplicate announcements |
 | D3 | Native PNG | WebP stored (JPEG fallback), JPEG on export, max 1920 px | 2–5 MB per PNG would bloat the docx and storage. WebP keeps text sharper than JPEG. AVIF can't be encoded from a canvas. docx needs JPEG/PNG |
 | D15 | Markdown, print, dnd-kit, auto-backoff | Cut | Fit 3 hours |
 | D17 (late feature) | Custom columns cut | Export templates: columns, order, names, blank tester columns, presets | Covers the client-template need without changing step data |
