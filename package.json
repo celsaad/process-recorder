@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "e2e:fixture": "node e2e/generate-fixture.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
