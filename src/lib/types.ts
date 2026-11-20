@@ -97,7 +97,7 @@ export type StepsAction =
   | { type: "undoRemove" }
   | { type: "dismissUndo" }
   | { type: "move"; id: string; direction: "up" | "down" }
-  | { type: "setTimestamp"; id: string; timestampSec: number } // re-pick: clears highlight AND suggestedHighlight if source was "gemini" (D9)
+  | { type: "setTimestamp"; id: string; timestampSec: number } // re-pick: always clears suggestedHighlight (the suggestion belonged to the old frame, D9); clears highlight too if its source was "gemini", keeps a user-drawn one
   | { type: "setCaptureState"; id: string; captureState: CaptureState }
   | { type: "setHighlight"; id: string; highlight: Rect | null; source: HighlightSource };
 
