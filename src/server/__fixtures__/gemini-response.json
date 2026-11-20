@@ -1,0 +1,319 @@
+{
+  "isScreenRecording": true,
+  "rejectionReason": "",
+  "processTitle": "Create Purchase Order and Post Goods Receipt",
+  "steps": [
+    {
+      "action": "Click 'Manage Purchase Orders'",
+      "description": "Click on the 'Manage Purchase Orders' tile under the Procurement section.",
+      "expectedResult": "The Manage Purchase Orders list page opens.",
+      "timestamp": "00:03",
+      "box_2d": [
+        240,
+        163,
+        463,
+        313
+      ]
+    },
+    {
+      "action": "Click 'Create'",
+      "description": "Click the 'Create' button to create a new purchase order.",
+      "expectedResult": "The New Purchase Order creation form opens.",
+      "timestamp": "00:07",
+      "box_2d": [
+        488,
+        728,
+        510,
+        766
+      ]
+    },
+    {
+      "action": "Click value help for 'Currency'",
+      "description": "Click the value help icon in the 'Currency' field.",
+      "expectedResult": "The 'Select: Currency' dialog appears.",
+      "timestamp": "00:11",
+      "box_2d": [
+        366,
+        484,
+        395,
+        500
+      ]
+    },
+    {
+      "action": "Enter 'usd' in search and select 'USD'",
+      "description": "Type 'usd' into the search input and select 'USD' (United States Dollar).",
+      "expectedResult": "Currency is populated with 'United States Dollar (USD)'.",
+      "timestamp": "00:13",
+      "box_2d": [
+        210,
+        131,
+        232,
+        716
+      ]
+    },
+    {
+      "action": "Click value help for 'Purchasing Group'",
+      "description": "Click the value help icon in the 'Purchasing Group' field.",
+      "expectedResult": "The 'Select: Purchasing Group' dialog opens.",
+      "timestamp": "00:18",
+      "box_2d": [
+        433,
+        710,
+        463,
+        727
+      ]
+    },
+    {
+      "action": "Select 'Group 001'",
+      "description": "Click on the row for 'Group 001' (001).",
+      "expectedResult": "The Purchasing Group field is filled with 'Group 001 (001)'.",
+      "timestamp": "00:19",
+      "box_2d": [
+        436,
+        183,
+        472,
+        241
+      ]
+    },
+    {
+      "action": "Click value help for 'Company Code'",
+      "description": "Click the value help icon in the 'Company Code' field.",
+      "expectedResult": "The 'Select: Company Code' dialog opens.",
+      "timestamp": "00:21",
+      "box_2d": [
+        366,
+        944,
+        395,
+        961
+      ]
+    },
+    {
+      "action": "Select '1710'",
+      "description": "Click on company code '1710' (Velotics Inc.).",
+      "expectedResult": "The Company Code field is filled with 'Velotics Inc. (1710)'.",
+      "timestamp": "00:22",
+      "box_2d": [
+        458,
+        142,
+        492,
+        169
+      ]
+    },
+    {
+      "action": "Click value help for 'Purchasing Organization'",
+      "description": "Click the value help icon in the 'Purchasing Organization' field.",
+      "expectedResult": "The 'Select: Purchasing Organization' dialog opens.",
+      "timestamp": "00:23",
+      "box_2d": [
+        434,
+        710,
+        461,
+        727
+      ]
+    },
+    {
+      "action": "Select 'Purch. Org. 1710'",
+      "description": "Select the purchasing organization row for 1710.",
+      "expectedResult": "Purchasing Organization is populated with 'Purch. Org. 1710 (1710)'.",
+      "timestamp": "00:24",
+      "box_2d": [
+        462,
+        179,
+        490,
+        269
+      ]
+    },
+    {
+      "action": "Click value help for 'Supplier'",
+      "description": "Click the value help icon in the 'Supplier' field.",
+      "expectedResult": "The 'Select: Supplier' dialog opens.",
+      "timestamp": "00:25",
+      "box_2d": [
+        434,
+        256,
+        461,
+        273
+      ]
+    },
+    {
+      "action": "Select 'Carbon Tec Inc.'",
+      "description": "Click on supplier 'Carbon Tec Inc.' (17300002).",
+      "expectedResult": "The Supplier field is populated with 'Carbon Tec Inc. (17300002)'.",
+      "timestamp": "00:27",
+      "box_2d": [
+        460,
+        319,
+        488,
+        386
+      ]
+    },
+    {
+      "action": "Click 'Create' under Items",
+      "description": "Click the 'Create' button in the Items table toolbar.",
+      "expectedResult": "A new line item is added to the table.",
+      "timestamp": "00:30",
+      "box_2d": [
+        669,
+        814,
+        692,
+        856
+      ]
+    },
+    {
+      "action": "Click value help for 'Material'",
+      "description": "Click the value help icon on the Material field in the item row.",
+      "expectedResult": "The 'Select: Material' dialog opens.",
+      "timestamp": "00:34",
+      "box_2d": [
+        519,
+        493,
+        540,
+        509
+      ]
+    },
+    {
+      "action": "Enter 'TG11' and search",
+      "description": "Enter 'TG11' into the search field and press Enter or click search.",
+      "expectedResult": "A list of matching materials starting with TG11 is displayed.",
+      "timestamp": "00:37",
+      "box_2d": [
+        213,
+        141,
+        237,
+        715
+      ]
+    },
+    {
+      "action": "Select 'TG11'",
+      "description": "Click on the material row for 'TG11' (Trad.Good 11,PD,Reg.Trading).",
+      "expectedResult": "The material details are populated into the line item.",
+      "timestamp": "00:39",
+      "box_2d": [
+        394,
+        305,
+        417,
+        439
+      ]
+    },
+    {
+      "action": "Enter '21' in 'Order Quantity'",
+      "description": "Type '21' into the 'Order Quantity' column for the line item.",
+      "expectedResult": "The Order Quantity is set to 21 PC.",
+      "timestamp": "00:48",
+      "box_2d": [
+        519,
+        489,
+        541,
+        563
+      ]
+    },
+    {
+      "action": "Enter '10' in 'Net Order Price'",
+      "description": "Type '10' into the 'Net Order Price' column.",
+      "expectedResult": "The Net Order Price is set to 10.00 USD and Net Order Value updates to 210.00 USD.",
+      "timestamp": "00:50",
+      "box_2d": [
+        520,
+        672,
+        540,
+        729
+      ]
+    },
+    {
+      "action": "Click 'Order'",
+      "description": "Click the 'Order' button at the bottom right to submit the purchase order.",
+      "expectedResult": "Purchase order is created, showing order number '4500055191'.",
+      "timestamp": "00:54",
+      "box_2d": [
+        946,
+        854,
+        977,
+        896
+      ]
+    },
+    {
+      "action": "Click 'Home'",
+      "description": "Click the SAP logo or Home dropdown at the top navigation bar.",
+      "expectedResult": "The home launchpad is displayed.",
+      "timestamp": "01:02",
+      "box_2d": [
+        41,
+        52,
+        60,
+        117
+      ]
+    },
+    {
+      "action": "Click 'Post Goods Receipt for Purchasing Document'",
+      "description": "Click on the 'Post Goods Receipt for Purchasing Document' tile.",
+      "expectedResult": "The Post Goods Receipt page opens.",
+      "timestamp": "01:03",
+      "box_2d": [
+        241,
+        317,
+        467,
+        458
+      ]
+    },
+    {
+      "action": "Enter '4500055191' in 'Purchasing Document'",
+      "description": "Enter the created purchase order number '4500055191' and select it from the dropdown.",
+      "expectedResult": "The purchase order items and receipt details are loaded.",
+      "timestamp": "01:06",
+      "box_2d": [
+        144,
+        343,
+        172,
+        694
+      ]
+    },
+    {
+      "action": "Select the item checkbox",
+      "description": "Check the checkbox on the item row to mark it for receiving.",
+      "expectedResult": "The line item is selected and required fields become active.",
+      "timestamp": "01:19",
+      "box_2d": [
+        610,
+        68,
+        627,
+        78
+      ]
+    },
+    {
+      "action": "Select 'Std. storage 1'",
+      "description": "Open the Storage Location selector and choose 'Std. storage 1' (171A).",
+      "expectedResult": "Storage location 171A is selected for the item.",
+      "timestamp": "01:21",
+      "box_2d": [
+        581,
+        758,
+        638,
+        915
+      ]
+    },
+    {
+      "action": "Click 'Post'",
+      "description": "Click the 'Post' button at the bottom right corner.",
+      "expectedResult": "A success popup displays 'Material Document 5000055610/2025 created'.",
+      "timestamp": "01:28",
+      "box_2d": [
+        944,
+        942,
+        979,
+        977
+      ]
+    },
+    {
+      "action": "Click the created Material Document link",
+      "description": "Click on the linked document number '5000055610/2025' in the Success dialog.",
+      "expectedResult": "The Material Document details and Process Flow page is displayed.",
+      "timestamp": "01:31",
+      "box_2d": [
+        515,
+        508,
+        540,
+        604
+      ]
+    }
+  ]
+}
