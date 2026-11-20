@@ -113,7 +113,12 @@ describe("stepsReducer", () => {
   it("setTimestamp to the same time changes nothing", () => {
     const s = loaded();
     const next = stepsReducer(s, { type: "setTimestamp", id: "step-1", timestampSec: 4 });
-    expect(next.steps[0]).toBe(s.steps[0]);
+    expect(next).toBe(s);
+  });
+
+  it("setCaptureState to the current state returns the same state", () => {
+    const s = loaded();
+    expect(stepsReducer(s, { type: "setCaptureState", id: "step-1", captureState: "ok" })).toBe(s);
   });
 
   it("setCaptureState sets the state", () => {

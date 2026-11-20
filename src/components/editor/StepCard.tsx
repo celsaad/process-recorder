@@ -8,13 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatTimestamp } from "@/lib/timestamp";
 import type { Rect } from "@/lib/types";
-import type { StepCardProps } from "@/lib/ui-contracts";
+import { stepHeadingDomId, type StepCardProps } from "@/lib/ui-contracts";
 import { cn } from "@/lib/utils";
 import { AutoGrowTextarea } from "./AutoGrowTextarea";
 
-export type StepPart = "heading" | "up" | "down";
+export type StepPart = "up" | "down";
 
-/** DOM id of a card element, used by StepList to move focus (D12). */
+/** DOM id of a card control, keyed by step id so it survives a move (D12). The heading uses the
+ *  numbered contract id `stepHeadingDomId(n)` instead, because FramePicker focuses it by number. */
 export const stepDomId = (stepId: string, part: StepPart | "action" | "description" | "expected") =>
   `step-${stepId}-${part}`;
 
@@ -99,11 +100,11 @@ export function StepCard({
   return (
     <article
       ref={cardRef}
-      aria-labelledby={stepDomId(step.id, "heading")}
+      aria-labelledby={stepHeadingDomId(n)}
       className="flex w-full flex-col gap-4 rounded-xl border border-border bg-card px-6 py-5 text-sm text-card-foreground"
     >
       <div className="flex items-center gap-3">
-        <h3 id={stepDomId(step.id, "heading")} tabIndex={-1} className="m-0 text-base font-semibold">
+        <h3 id={stepHeadingDomId(n)} tabIndex={-1} className="m-0 text-base font-semibold">
           Step {n}
         </h3>
         <Button

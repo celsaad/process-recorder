@@ -6,8 +6,10 @@ export const initialSteps: StepsState = { steps: [], lastDeleted: null };
 function patchStep(state: StepsState, id: string, fn: (s: Step) => Step): StepsState {
   const i = state.steps.findIndex((s) => s.id === id);
   if (i === -1) return state;
+  const next = fn(state.steps[i]);
+  if (next === state.steps[i]) return state; // unchanged: keep identity so autosave doesn't fire
   const steps = state.steps.slice();
-  steps[i] = fn(steps[i]);
+  steps[i] = next;
   return { ...state, steps };
 }
 

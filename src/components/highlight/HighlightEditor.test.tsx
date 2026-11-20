@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { axe } from "vitest-axe";
 import type { Rect } from "@/lib/types";
 import { HighlightEditor, resizeFromCorner } from "./HighlightEditor";
@@ -74,6 +74,80 @@ describe("HighlightEditor", () => {
     await user.keyboard("{Delete}");
     expect(onChange).toHaveBeenLastCalledWith(null);
     expect(screen.queryByRole("button", { name: /Highlight on step 3/ })).not.toBeInTheDocument();
+  });
+
+  describe("pointer drag", () => {
+    let frames: FrameRequestCallback[] = [];
+    const flushFrames = () =>
+      act(() => {
+        const queued = frames;
+        frames = [];
+        queued.forEach((cb) => cb(0));
+      });
+
+    beforeEach(() => {
+      frames = [];
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+      vi.stubGlobal("cancelAnimationFrame", () => {});
+      // The image frame is 1000 × 500 px, so 100 px = 0.1 wide and 50 px = 0.1 tall.
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+        DOMRect.fromRect({ x: 0, y: 0, width: 1000, height: 500 }),
+      );
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    const box = () => screen.getByRole("button", { name: /Highlight on step 3/ }).parentElement!;
+
+    it("updates a draft once per frame and commits once on pointer-up", () => {
+      const onChange = vi.fn();
+      render(<Harness onChange={onChange} />);
+      const rect = screen.getByRole("button", { name: /Highlight on step 3/ });
+      fireEvent.pointerDown(rect, { clientX: 100, clientY: 100, button: 0, pointerId: 1 });
+      expect(rect).toHaveFocus();
+      fireEvent.pointerMove(rect, { clientX: 150, clientY: 125, pointerId: 1 });
+      fireEvent.pointerMove(rect, { clientX: 200, clientY: 150, pointerId: 1 });
+      expect(frames).toHaveLength(1); // batched into one frame
+      expect(onChange).not.toHaveBeenCalled();
+      flushFrames();
+      expect(parseFloat(box().style.left)).toBeCloseTo(60);
+      expect(parseFloat(box().style.top)).toBeCloseTo(60);
+      expect(onChange).not.toHaveBeenCalled();
+      fireEvent.pointerUp(rect, { clientX: 200, clientY: 150, pointerId: 1 });
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(last(onChange)!.x).toBeCloseTo(0.6);
+      expect(last(onChange)!.y).toBeCloseTo(0.6);
+      expect(last(onChange)!.w).toBeCloseTo(0.2);
+    });
+
+    it("pointercancel discards the draft without committing", () => {
+      const onChange = vi.fn();
+      render(<Harness onChange={onChange} />);
+      const rect = screen.getByRole("button", { name: /Highlight on step 3/ });
+      fireEvent.pointerDown(rect, { clientX: 100, clientY: 100, button: 0, pointerId: 1 });
+      fireEvent.pointerMove(rect, { clientX: 200, clientY: 150, pointerId: 1 });
+      flushFrames();
+      fireEvent.pointerCancel(rect, { pointerId: 1 });
+      expect(onChange).not.toHaveBeenCalled();
+      expect(parseFloat(box().style.left)).toBeCloseTo(50);
+    });
+
+    it("dragging a corner handle resizes from that corner", () => {
+      const onChange = vi.fn();
+      render(<Harness onChange={onChange} />);
+      const rect = screen.getByRole("button", { name: /Highlight on step 3/ });
+      act(() => rect.focus());
+      const se = rect.querySelector<HTMLElement>('[data-handle="se"]')!;
+      fireEvent.pointerDown(se, { clientX: 700, clientY: 300, button: 0, pointerId: 1 });
+      fireEvent.pointerMove(rect, { clientX: 800, clientY: 350, pointerId: 1 });
+      fireEvent.pointerUp(rect, { pointerId: 1 });
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(last(onChange)).toMatchObject({ x: 0.5, y: 0.5 });
+      expect(last(onChange)!.w).toBeCloseTo(0.3);
+      expect(last(onChange)!.h).toBeCloseTo(0.2);
+    });
   });
 
   it("resizeFromCorner keeps the opposite corner and the minimum size", () => {

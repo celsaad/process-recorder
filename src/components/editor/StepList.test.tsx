@@ -7,14 +7,22 @@ import { axe } from "vitest-axe";
 import { LiveRegionProvider } from "@/components/shell/LiveRegion";
 import { fixtureSteps } from "@/fixtures/project";
 import { stepsReducer } from "@/lib/steps-reducer";
+import type { Step } from "@/lib/types";
+import { stepHeadingDomId } from "@/lib/ui-contracts";
 import { DeletedStepRow } from "./DeletedStepRow";
 import { StepList } from "./StepList";
 
 const SHOT = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
 const shotUrls = Object.fromEntries(fixtureSteps.map((s) => [s.id, SHOT]));
 
-function Harness({ onAddStep = vi.fn() }: { onAddStep?: (afterId: string | null) => void }) {
-  const [state, dispatch] = useReducer(stepsReducer, { steps: fixtureSteps, lastDeleted: null });
+function Harness({
+  onAddStep = vi.fn(),
+  steps = fixtureSteps,
+}: {
+  onAddStep?: (afterId: string | null) => void;
+  steps?: Step[];
+}) {
+  const [state, dispatch] = useReducer(stepsReducer, { steps, lastDeleted: null });
   return (
     <StepList
       steps={state.steps}
@@ -27,11 +35,11 @@ function Harness({ onAddStep = vi.fn() }: { onAddStep?: (afterId: string | null)
   );
 }
 
-function setup(onAddStep?: (afterId: string | null) => void) {
+function setup(onAddStep?: (afterId: string | null) => void, steps?: Step[]) {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
   const utils = render(
     <LiveRegionProvider>
-      <Harness onAddStep={onAddStep} />
+      <Harness onAddStep={onAddStep} steps={steps} />
     </LiveRegionProvider>,
   );
   return { user, ...utils };
@@ -124,6 +132,45 @@ describe("StepList", () => {
     await user.click(screen.getByRole("button", { name: "Delete step 3" })); // the last one
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.getByRole("heading", { name: "Step 2" })).toHaveFocus();
+  });
+
+  it("heading ids follow the stepHeadingDomId(n) contract, also after a move", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { user } = setup();
+    const ids = () => screen.getAllByRole("heading", { level: 3 }).map((h) => h.id);
+    expect(ids()).toEqual([1, 2, 3, 4].map(stepHeadingDomId));
+    expect(document.getElementById(stepHeadingDomId(3))).toHaveTextContent("Step 3");
+    await user.click(screen.getByRole("button", { name: "Move step 3 up" }));
+    expect(ids()).toEqual([1, 2, 3, 4].map(stepHeadingDomId));
+    const article = screen.getByRole("article", { name: "Step 2" });
+    expect(article).toHaveAttribute("aria-labelledby", stepHeadingDomId(2));
+    expect(within(article).getByLabelText<HTMLTextAreaElement>("Action").value).toBe(fixtureSteps[2].action);
+  });
+
+  it("Undo focuses the restored step's heading through its numbered id", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: "Delete step 1" }));
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(document.activeElement).toBe(document.getElementById(stepHeadingDomId(1)));
+  });
+
+  it("Dismiss with no steps left focuses Add step at the end", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { user } = setup(undefined, fixtureSteps.slice(0, 1));
+    await user.click(screen.getByRole("button", { name: "Delete step 1" }));
+    expect(screen.getByRole("button", { name: "Undo" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add step at the end" })).toHaveFocus();
+  });
+
+  it("Dismiss with one step left focuses that step", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { user } = setup(undefined, fixtureSteps.slice(0, 2));
+    await user.click(screen.getByRole("button", { name: "Delete step 2" }));
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.getByRole("heading", { name: "Step 1" })).toHaveFocus();
   });
 
   it("a second delete replaces the row", async () => {

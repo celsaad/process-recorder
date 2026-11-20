@@ -4,11 +4,15 @@ import { Plus } from "lucide-react";
 import { Fragment, useEffect, useRef } from "react";
 import { useAnnounce } from "@/components/shell/LiveRegion";
 import { Button } from "@/components/ui/button";
-import type { StepListProps } from "@/lib/ui-contracts";
+import { stepHeadingDomId, type MoveDirection, type StepListProps } from "@/lib/ui-contracts";
 import { DeletedStepRow } from "./DeletedStepRow";
-import { StepCard, stepDomId, type StepPart } from "./StepCard";
+import { StepCard, stepDomId } from "./StepCard";
 
-type FocusTarget = { kind: "step"; id: string; part: StepPart } | { kind: "undo" } | { kind: "addEnd" };
+type FocusTarget =
+  | { kind: "move"; id: string; direction: MoveDirection }
+  | { kind: "heading"; id: string }
+  | { kind: "undo" }
+  | { kind: "addEnd" };
 
 const addButton =
   "h-8 gap-1 rounded-lg pr-2.5 pl-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground";
@@ -29,25 +33,29 @@ export function StepList({ steps, lastDeleted, shotUrls, dispatch, onPickFrame, 
     pendingFocus.current = null;
     const root = listRef.current;
     if (!root) return;
-    const el =
-      target.kind === "step"
-        ? document.getElementById(stepDomId(target.id, target.part))
-        : target.kind === "undo"
-          ? root.querySelector<HTMLElement>("[data-undo]")
-          : root.querySelector<HTMLElement>("[data-add-end]");
+    let el: HTMLElement | null = null;
+    if (target.kind === "move") {
+      el = document.getElementById(stepDomId(target.id, target.direction));
+    } else if (target.kind === "heading") {
+      // Heading ids are numbered (contract), so resolve the step's position after the render.
+      const index = steps.findIndex((s) => s.id === target.id);
+      if (index !== -1) el = document.getElementById(stepHeadingDomId(index + 1));
+    } else {
+      el = root.querySelector<HTMLElement>(target.kind === "undo" ? "[data-undo]" : "[data-add-end]");
+    }
     el?.focus();
   });
 
-  const neighbourFocus = (index: number, remaining = steps): FocusTarget => {
-    const next = remaining[index] ?? remaining[index - 1];
-    return next ? { kind: "step", id: next.id, part: "heading" } : { kind: "addEnd" };
+  const neighbourFocus = (index: number): FocusTarget => {
+    const next = steps[index] ?? steps[index - 1];
+    return next ? { kind: "heading", id: next.id } : { kind: "addEnd" };
   };
 
-  const move = (id: string, index: number, direction: "up" | "down") => {
+  const move = (id: string, index: number, direction: MoveDirection) => {
     const to = direction === "up" ? index - 1 : index + 1;
     if (to < 0 || to >= steps.length) return;
     dispatch({ type: "move", id, direction });
-    pendingFocus.current = { kind: "step", id, part: direction };
+    pendingFocus.current = { kind: "move", id, direction };
     announce(`Step moved to position ${to + 1}`);
   };
 
@@ -60,7 +68,7 @@ export function StepList({ steps, lastDeleted, shotUrls, dispatch, onPickFrame, 
   const undo = () => {
     if (!lastDeleted) return;
     dispatch({ type: "undoRemove" });
-    pendingFocus.current = { kind: "step", id: lastDeleted.step.id, part: "heading" };
+    pendingFocus.current = { kind: "heading", id: lastDeleted.step.id };
     announce(`Step ${Math.min(lastDeleted.index, steps.length) + 1} restored`);
   };
 

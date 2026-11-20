@@ -32,10 +32,11 @@ const sameRect = (a: Rect | null, b: Rect | null) =>
 const pct = (v: number) => `${v * 100}%`;
 
 const CORNERS: { corner: Corner; className: string }[] = [
-  { corner: "nw", className: "-left-3.5 -top-3.5 cursor-nwse-resize" },
-  { corner: "ne", className: "-right-3.5 -top-3.5 cursor-nesw-resize" },
-  { corner: "sw", className: "-left-3.5 -bottom-3.5 cursor-nesw-resize" },
-  { corner: "se", className: "-right-3.5 -bottom-3.5 cursor-nwse-resize" },
+  // 24 px hit areas centred on the corners (-12 px); the visible handle inside is 14 px.
+  { corner: "nw", className: "-left-3 -top-3 cursor-nwse-resize" },
+  { corner: "ne", className: "-right-3 -top-3 cursor-nesw-resize" },
+  { corner: "sw", className: "-left-3 -bottom-3 cursor-nesw-resize" },
+  { corner: "se", className: "-right-3 -bottom-3 cursor-nwse-resize" },
 ];
 
 /**
@@ -47,6 +48,7 @@ export function HighlightEditor({ imageUrl, alt, stepNumber, highlight, suggeste
   const frameRef = useRef<HTMLDivElement>(null);
   const rectRef = useRef<HTMLButtonElement>(null);
   const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [draft, setDraft] = useState<Rect | null>(null);
   const drag = useRef<{
     mode: DragMode;
@@ -132,6 +134,7 @@ export function HighlightEditor({ imageUrl, alt, stepNumber, highlight, suggeste
   }
 
   const active = focused || draft !== null;
+  const showHandles = active || hovered;
   const isSuggestion = sameRect(highlight, suggested);
 
   return (
@@ -157,6 +160,8 @@ export function HighlightEditor({ imageUrl, alt, stepNumber, highlight, suggeste
               aria-describedby={hintId}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
+              onPointerEnter={() => setHovered(true)}
+              onPointerLeave={() => setHovered(false)}
               onKeyDown={onKeyDown}
               onPointerDown={(e) => beginDrag(e, "move")}
               onPointerMove={onPointerMove}
@@ -192,7 +197,7 @@ export function HighlightEditor({ imageUrl, alt, stepNumber, highlight, suggeste
                   vectorEffect="non-scaling-stroke"
                 />
               </svg>
-              {active &&
+              {showHandles &&
                 CORNERS.map(({ corner, className }) => (
                   <span
                     key={corner}
@@ -205,7 +210,7 @@ export function HighlightEditor({ imageUrl, alt, stepNumber, highlight, suggeste
                   </span>
                 ))}
             </button>
-            {isSuggestion && !active && (
+            {isSuggestion && !showHandles && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute -left-[3px] top-[calc(100%+5px)] rounded bg-highlight px-1.5 text-xs leading-[18px] font-semibold whitespace-nowrap text-white"
