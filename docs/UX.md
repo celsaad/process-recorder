@@ -37,12 +37,14 @@ There are deliberately **no custom shortcuts inside step cards**. The fields are
 | Context | Keys | Action |
 |---|---|---|
 | Page | `Tab` / `Shift+Tab` | Header → dropzone or step list → Export |
-| Step card | `Tab` | Action → Description → Expected result → Pick frame → Move up → Move down → Delete |
+| Step card | `Tab` | Timestamp → Action → Description → Expected result → Highlight (when present) → Pick frame → Add/Remove highlight → Reset (when suggested) → Move up → Move down → Delete |
 | Move up / down | `Enter` / `Space` | Moves the step. Focus stays on the same button, now in its new position. Status: "Step moved to position 2" |
-| Delete | `Enter` / `Space` | Focus moves to the next step (or the previous one if it was last). The toast's Undo button is reachable by Tab |
+| Delete | `Enter` / `Space` | An inline "Step N deleted · Undo · Dismiss" row replaces the card. Focus moves to the next step (the previous one if it was last), so Undo is one `Shift+Tab` away |
+| Move up / down at the ends | `Enter` / `Space` | No-op: the button is `aria-disabled`, not `disabled`, so it keeps focus |
 | Frame picker (dialog) | `←` / `→` on the slider | ±0.1 s (`Shift` = ±1 s) |
-| Frame picker | `Enter` / `Esc` | Use this frame / cancel (focus returns to "Pick frame") |
-| Highlight (focused) | Arrows / `Shift` + arrows / `Alt` + arrows / `Delete` | Move / move 10× / resize / remove |
+| Frame picker | `Enter` on the slider / `Esc` | Use this frame / cancel (focus returns to the trigger). `Enter` on a ± button only steps |
+| Highlight (focused, in the card) | Arrows / `Shift` + arrows / `Alt` + arrows / `Delete` | Move / move 10× / resize / remove. Instructions are read via `aria-describedby` |
+| Project title | `Enter` / `Esc` (after "Rename") | Save / cancel the new title |
 
 ## Accessibility checklist (target WCAG 2.2 AA; verify with a keyboard walkthrough + axe, record gaps)
 
@@ -53,7 +55,10 @@ There are deliberately **no custom shortcuts inside step cards**. The fields are
 - [ ] One polite live region for status. Errors are announced by moving focus, not also by `role="alert"`
 - [ ] Focus moved deliberately: after capture, after delete, on error, on dialog close
 - [ ] Screenshot `alt` = "Screenshot for step N". Decorative icons are `aria-hidden`
-- [ ] No time limits: the Undo toast stays until dismissed (2.2.1)
+- [ ] No time limits: the inline Undo row stays until dismissed (2.2.1)
+- [ ] Two-tone focus ring visible on white, grey and dark surfaces
+- [ ] End-of-list Move buttons are `aria-disabled` and keep focus
+- [ ] Visible labels are a prefix of accessible names (2.5.3). Repeated buttons include the step number
 - [ ] Text and UI contrast ≥ 4.5:1 / 3:1
 - [ ] `prefers-reduced-motion` respected
 - [ ] Target size ≥ 24×24 px (2.5.8)

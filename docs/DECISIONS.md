@@ -260,10 +260,14 @@ Validation that can run in the browser runs there first, so obviously bad files 
 
 - Inline-editable fields (auto-growing textareas). No modal "edit mode".
 - Reordering uses **Move up / Move down buttons** on each step. Focus follows the moved step, and a status message announces "Step 3 moved to position 2". This meets WCAG 2.5.7 without drag. Drag-and-drop (dnd-kit) is a stretch goal.
+- At the ends, Move up/down are **`aria-disabled`, not `disabled`**. A natively disabled button drops focus to `<body>` the moment a step reaches the top, which breaks "focus stays on the button".
 - **No custom keyboard shortcuts inside steps.** In a macOS textarea, ⌘↑/↓, ⌘⌫ and ⌘Z already mean caret-to-start/end, delete-to-line-start and native undo. Overriding them would break text editing. Tab order plus labelled buttons are the keyboard flow.
-- Delete shows a toast with an **Undo button that stays until dismissed or until the next delete** (WCAG 2.2.1 forbids a short timer). Focus moves to the next step, or to the previous one if the last step was deleted.
+- Delete leaves an **inline row where the card was: "Step 3 deleted · Undo · Dismiss"**. It stays until dismissed or until the next delete (WCAG 2.2.1 forbids a short timer). Focus moves to the next step, or to the previous one if the last step was deleted, so Undo is one Shift+Tab away. *Revised after the design review:* a floating toast sits last in the DOM, which at 20 steps put Undo dozens of Tabs away.
 - "Add step" inserts after the current step at its timestamp + 1 s and captures that frame as a starting point.
 - Each step shows its timestamp as a button that opens the frame picker at that moment.
+- Highlights are edited **in place in the card**. Add / Remove / Reset-to-suggestion sit in the card's action row (D9).
+- Repeated controls include the step number in their accessible name ("Pick frame for step 3"), and visible text is always a prefix of the accessible name (WCAG 2.5.3, label in name).
+- The editor header (title, save status, Export, Start new) is **sticky**. Screenshots are capped at 320 px tall so 20+ steps stay scannable.
 
 ---
 
@@ -281,7 +285,8 @@ Target: WCAG 2.2 AA where it applies. We check it with **a keyboard-only walkthr
 - Dialogs return focus to their trigger.
 - Every input has a visible label.
 - Screenshot `alt` = "Screenshot for step 3". The action text sits right next to it, so repeating it in the alt would be redundant.
-- Visible focus rings; `prefers-reduced-motion` respected; AA contrast in the palette.
+- Visible focus rings that are **two-tone** (2 px blue `#1D5BD6` plus a 2 px white outer ring). A single blue ring measured 2.98:1 on the dark toast and as low as 1.02:1 over dark screenshot content. `prefers-reduced-motion` is respected, and the palette meets AA contrast (all text pairs measured 5.6:1 or better).
+- Exactly **one** live region, in the shell. Banners and rows don't carry their own `role="status"`.
 
 ---
 
@@ -353,6 +358,8 @@ An independent AI reviewer (a separate model with no stake in the plan) critique
 | D4 security | Client sent `fileUri` | Client sends `fileName`; the server resolves it; server-side size/type checks | Don't let the client choose the URI; client checks can be bypassed |
 | D10 | 12 kinds | Added `missing_api_key`, `file_expired`, `gemini_blocked`, `storage_full`, poll timeout | Gaps an interviewer would probe |
 | D13 | `role="alert"` + focus move; 5 s undo toast | Focus move only; undo stays until dismissed | Double announcement; WCAG 2.2.1 |
+| D12 (design review) | Floating Undo toast; native `disabled` move buttons; highlight on a separate surface | Inline deleted-step row; `aria-disabled`; highlight edited in the card | Toast unreachable by keyboard at 20 steps; focus lost on disable; plan/design mismatch |
+| D13 (design review) | Single-colour focus ring; live regions per component | Two-tone ring; one live region | Ring failed contrast on dark surfaces; duplicate announcements |
 | D3 | Native PNG | WebP stored (JPEG fallback), JPEG on export, max 1920 px | 2–5 MB per PNG would bloat the docx and storage. WebP keeps text sharper than JPEG. AVIF can't be encoded from a canvas. docx needs JPEG/PNG |
 | D15 | Markdown, print, dnd-kit, auto-backoff | Cut | Fit 3 hours |
 | D16 | Hard reject over 3:00 | Notice over 3:00, reject over 10:00 | Two of the provided example videos are 3:33 and 5:26 |

@@ -283,7 +283,7 @@ Each lane: one agent, `isolation: "worktree"`. The list order within each lane i
    - `createFrameGrabber(blob) → { capture(sec, {signal}) → Blob; dispose() }` (sequential queue, same-time guard, per-seek timeout → `capture_failed`, `requestVideoFrameCallback`).
    - `captureFromVideo(video) → Blob`.
 2. `image.ts`: `encodeFrame(canvas) → Blob` (WebP 0.9, ≤1920 px wide, check `blob.type`, JPEG fallback), `renderForExport(shot, highlight) → {bytes, width, height}` (JPEG 0.92, highlight burned in).
-3. `frames/FramePicker.tsx`: Radix Dialog, visible `<video>`, slider, ±0.1 s/±1 s buttons, the latest seek wins, the original timestamp marked, Enter/Esc, focus returns to the trigger. Confirm → `onConfirm(sec, await captureFromVideo(video))`.
+3. `frames/FramePicker.tsx`: Radix Dialog, visible `<video>` (preview capped at `max-height: 50vh`), Radix slider (Shift = larger steps; the original-timestamp marker offset for the thumb inset), hint "← → step · Shift for 1 s · Enter to use · Esc to cancel", ±0.1 s/±1 s buttons, the latest seek wins, the original timestamp marked, Enter/Esc, focus returns to the trigger. Confirm → `onConfirm(sec, await captureFromVideo(video))`.
 4. `export-docx.ts`: `buildDocx(project, steps, getShot) → Blob` (landscape, title, 5-column table), `downloadBlob(blob, filename)`, `exportFilename(title)` → `"create-a-purchase-order.docx"`.
 5. `/dev/media`: pick a file → probe → capture at 3 timestamps → open the FramePicker → export the fixture project. Also record the lossless vs lossy WebP sizes (D3) if time allows.
 
@@ -293,21 +293,21 @@ Each lane: one agent, `isolation: "worktree"`. The list order within each lane i
 **Owns:** `src/app/globals.css` (token values only), `src/app/error.tsx`, `src/components/shell/**` (except `LiveRegion.tsx`), `src/components/upload/**`, `src/components/feedback/**`, `src/components/project/**`, `src/app/dev/states/page.tsx`
 
 1. **Token values** from the design canvas, in `globals.css`.
-2. `shell/AppHeader` `{ saveStatus; onStartNew?; children? }` (children = title + export slot).
+2. `shell/AppHeader` `{ saveStatus; onStartNew?; children? }` (children = title + export slot). **Sticky** in the editor, so Export and the save status stay visible with 20+ steps.
 3. `upload/Dropzone` `{ onFile; disabled? }` and `upload/EmptyState` `{ onFile }` (formats, limits, how it works, privacy line).
 4. `upload/JobProgress` `{ job: running JobState; video: VideoInfo; onCancel }` (stage list, elapsed time not announced, indeterminate bar, plus the long-video notice when `isLongVideo(video.durationSec)`; D16) and `upload/CaptureBanner` `{ done; total }` (the compact banner shown above the editor while capturing).
-5. `feedback/ErrorPanel` `{ error; onPrimary; onSecondary? }` (copy from `ERROR_COPY`, focuses its heading on mount, no `role="alert"`), `feedback/Banner` `{ tone; children; action? }` (also used for the long-video notice in the editor), `feedback/ConfirmDialog` `{ open; kind: "start_new" | "replace"; onResolve(ok) }` (alert-dialog).
-6. `project/ProjectTitle` `{ value; onChange }` (an inline-editable `h1` with `id={RESULTS_HEADING_ID}` and `tabIndex={-1}`), `project/ExportButton` `{ onExport(): Promise<void> }` (busy state + error toast), `project/NoSteps` `{ onAddStep }`.
+5. `feedback/ErrorPanel` `{ error; onPrimary; onSecondary?; children? }` (copy from `ERROR_COPY`, `h1` heading focused on mount, no `role="alert"`; `children` is an extra detail area, e.g. Gemini's reason or "Your video is already uploaded. Retry won't upload it again."), `feedback/Banner` `{ tone: "warning" | "info"; children; action? }` (info tone = the long-video notice; no `role` of its own, announcements go through `useAnnounce`), `feedback/ConfirmDialog` `{ open; kind: "start_new" | "replace"; onResolve(ok) }` (alert-dialog).
+6. `project/ProjectTitle` `{ value; onChange }` (a **visible** `h1` with `id={RESULTS_HEADING_ID}` and `tabIndex={-1}` showing the title, plus a "Rename" icon button that swaps in a labelled input; Enter saves, Esc cancels), `project/ExportButton` `{ onExport(): Promise<void> }` (busy state + error toast), `project/NoSteps` `{ onAddStep }`.
 7. `app/error.tsx` and `/dev/states` (every component in every state, from fixtures).
 
 ### Lane E: Step editor + highlights (D9, D12, D13)
 **Owns:** `src/lib/steps-reducer.ts` (+ tests), `src/components/editor/**`, `src/components/highlight/**`, `src/app/dev/editor/page.tsx`
 
 1. `steps-reducer.ts`: `stepsReducer`, `initialSteps`. Tests for every action, including the `setTimestamp` highlight-clearing rule and undo restoring at the original index.
-2. `editor/StepCard` `{ step; index; total; shotUrl?; onChange(patch); onMove(dir); onDelete; onPickFrame; onHighlightChange(r, source) }`: heading "Step N", timestamp button (opens the picker), screenshot with a skeleton while `pending` and a placeholder + "Pick frame" when `failed`, `alt="Screenshot for step N"`, labelled auto-grow textareas, Move up/down/Delete icon buttons with `aria-label`s (disabled at the ends).
-3. `editor/StepList` `{ steps; shotUrls; dispatch; onPickFrame(id); onAddStep(afterId) }`: `<ol>`, Add-step affordances, focus management after move/delete (D12), announcements via `useAnnounce`.
-4. `editor/UndoToast` `{ deleted; onUndo; onDismiss }` (no timeout).
-5. `highlight/HighlightEditor` `{ imageUrl; alt; highlight; suggested; onChange(r: Rect | null) }`: SVG overlay, pointer drag/resize (rAF, commit on pointer-up), arrows / Shift / Alt / Delete, Add / Remove / Reset-to-suggestion buttons. **Timebox 30 min**. If it runs over, ship a read-only overlay + Remove button.
+2. `editor/StepCard` `{ step; index; total; shotUrl?; onChange(patch); onMove(dir); onDelete; onPickFrame; onHighlightChange(r, source) }`: heading "Step N", timestamp button (opens the picker), screenshot (max 320 px tall) with a skeleton while `pending` and a placeholder + "Pick frame" when `failed`, `alt="Screenshot for step N"`, labelled auto-grow textareas (no resize handle). **Action row:** Pick frame, Add / Remove highlight, Reset to suggestion (only when `suggestedHighlight` exists), Move up, Move down, Delete. Every accessible name includes "for step N" / "step N", and visible text is a prefix of the name (label-in-name). Move buttons at the ends use **`aria-disabled="true"`, not `disabled`**, so focus isn't lost after moving a step to the top.
+3. `editor/StepList` `{ steps; lastDeleted; shotUrls; dispatch; onPickFrame(id); onAddStep(afterId) }`: `<ol>`, "Add step" affordances (named "Add step after step N"), focus management after move/delete (D12), announcements via `useAnnounce`. Renders the `DeletedStepRow` inline at `lastDeleted.index`.
+4. `editor/DeletedStepRow` `{ deleted; onUndo; onDismiss }`: an inline row where the deleted card was, "Step 3 deleted · Undo · Dismiss". No timeout. Replaced by the next delete. **Not** a floating toast: a toast sits last in the DOM, dozens of Tabs away (D12).
+5. `highlight/HighlightEditor` `{ imageUrl; alt; stepNumber; highlight; suggested; onChange(r: Rect | null) }`: edited **in place inside the card** (no separate surface). SVG overlay named "Highlight on step N screenshot" with key instructions in `aria-describedby`. **4 corner handles** (drawn 14 px, 24 px hit area). Pointer drag/resize (rAF, commit on pointer-up), arrows / Shift / Alt / Delete. The Add / Remove / Reset buttons live in StepCard's action row. **Timebox 30 min**. If it runs over, ship a read-only overlay + Remove button.
 6. `/dev/editor`: fixture project + real reducer + fixture shots.
 
 ### Lane F: Orchestrator hook + page (D7, D8, D10)
@@ -323,7 +323,7 @@ Each lane: one agent, `isolation: "worktree"`. The list order within each lane i
    - **Autosave:** steps and title go through the debounced saver (`saveStatus`, `storageFull`), and `pagehide` calls `flush()`.
    - **repick / addStep / exportDocx** as typed in `Recorder`.
    - Owns and revokes every object URL.
-3. `app/page.tsx` (client): idle → `EmptyState`. running and not capturing → `JobProgress`. running(capturing) or ready → editor (header, `ProjectTitle`, `CaptureBanner` while capturing, `StepList` or `NoSteps`, `UndoToast`, `FramePicker`). error → `ErrorPanel`. `ConfirmDialog` is driven by `pendingConfirm`. The storage-full `Banner` is shown when needed.
+3. `app/page.tsx` (client): idle → `EmptyState`. running and not capturing → `JobProgress`. running(capturing) or ready → editor (header, `ProjectTitle`, `CaptureBanner` while capturing, `StepList` or `NoSteps`, `FramePicker`). error → `ErrorPanel`. `ConfirmDialog` is driven by `pendingConfirm`. The storage-full `Banner` is shown when needed.
 
 **Tests:** the hook with `vi.mock` of `persistence`, `api-client` and `frames` (or the fakes): the happy path, cancel mid-upload, analyze failure → retry without re-upload, restore on mount.
 
@@ -387,13 +387,13 @@ jsdom + Testing Library + `user-event`. Each test file ends with `expect(await a
 |---|---|---|
 | `Dropzone` | D | It's a button. Enter/Space opens the file input. A drop calls `onFile`. `disabled` blocks both |
 | `JobProgress` | D | Completed/active/pending stages are marked (not by colour alone). Cancel calls `onCancel`. The elapsed time is outside the live region |
-| `ErrorPanel` | D | The heading gets focus on mount. Copy comes from `ERROR_COPY` with `detail` filled in. No `role="alert"` |
+| `ErrorPanel` | D | The `h1` gets focus on mount. Copy comes from `ERROR_COPY` with `detail` filled in. `children` render in the detail area. No `role="alert"` |
 | `ConfirmDialog` | D | Focus is trapped, Esc resolves `false`, and focus returns to the trigger |
-| `StepCard` | E | Every textarea has a label. Icon buttons have names that include the step number. Move up is disabled on the first step, Move down on the last. `alt="Screenshot for step N"` |
+| `StepCard` | E | Every textarea has a label. Icon buttons have names that include the step number. Move up has `aria-disabled` on the first step (still focusable; activating it does nothing), Move down on the last. Visible label is a prefix of the accessible name. Reset is shown only when there's a suggestion. `alt="Screenshot for step N"` |
 | `StepList` | E | After a move, focus is on the moved step's button. After a delete, focus goes to the next step (the previous one if it was last). Moves and deletes are announced |
-| `UndoToast` | E | No auto-dismiss (advance fake timers 60 s, still visible). Undo calls `onUndo` |
-| `HighlightEditor` | E | Arrows move by 1%, Shift by 10%, Alt resizes, Delete removes. Reset is shown only when `suggested` isn't null |
-| `FramePicker` | C | Arrow and Shift+arrow on the slider change the time. Enter confirms, Esc cancels. Focus returns (video capture mocked) |
+| `DeletedStepRow` / `StepList` | E | The row renders at the deleted index. No auto-dismiss (advance fake timers 60 s, still visible). Undo restores the step and focuses its heading. Undo is reachable with one Shift+Tab from the focused next step |
+| `HighlightEditor` | E | Arrows move by 1%, Shift by 10%, Alt resizes, Delete removes. Name is "Highlight on step N screenshot" with instructions via `aria-describedby`. 4 handles |
+| `FramePicker` | C | Arrow and Shift+arrow on the (Radix) slider change the time. Enter on the slider confirms, Enter on a ± button only steps. Esc cancels. Focus returns (video capture mocked) |
 | `useProcessRecorder` | F | Covered in the Lane F tests (hook tests with mocks) |
 
 ### Route / contract tests (layer 3)
