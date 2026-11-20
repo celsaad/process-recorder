@@ -3,6 +3,8 @@
 Each entry records the context, the decision, the alternatives considered, and the tradeoff accepted.
 Status: **Planned** = decided, not yet built · **Built** = implemented · **Revised** = changed during the build (see note).
 
+The plan was reviewed by an independent AI reviewer before any code was written. The [review log](#review-log) at the end lists what changed and why.
+
 ---
 
 ## D1. Run locally; no deployment target
@@ -11,12 +13,12 @@ Status: **Planned** = decided, not yet built · **Built** = implemented · **Rev
 
 **Context.** The exercise is 3 hours. Videos are up to 3 minutes; QuickTime screen recordings on a Retina display can be 50–300 MB.
 
-**Decision.** Run with `pnpm dev` / `pnpm start` on the user's machine. The repo is pushed to GitHub for review, not deployed.
+**Decision.** Run with `pnpm dev` / `pnpm start` on the user's machine. The repo is on GitHub for review, not deployed.
 
 **Alternatives.**
 - *Vercel.* Serverless functions cap request bodies at ~4.5 MB, so the video cannot go through our server. We would have to upload directly from the browser to a Gemini resumable-upload URL minted by the server. Doable, but it adds CORS and session-URL handling to the riskiest part of the app.
 
-**Tradeoff / what changes for production.** Production would switch to direct-to-storage upload (Gemini resumable URL or a GCS/S3 signed URL), with the server only minting URLs and calling Gemini by file reference. The client upload module is isolated so only the transport changes.
+**Tradeoff / what changes for production.** Production would switch to direct-to-storage upload (Gemini resumable URL or a GCS/S3 signed URL) and a job queue. The server would only mint URLs and call Gemini by file reference. The client transport module is isolated so only it changes.
 
 ---
 
@@ -24,13 +26,14 @@ Status: **Planned** = decided, not yet built · **Built** = implemented · **Rev
 
 **Status:** Planned
 
-**Context.** Recommended in the brief; we want accessible primitives without spending time on them.
-
 **Decision.** Next.js 16 (App Router), React 19, Tailwind 4, shadcn/ui (Radix underneath).
 
 **Why shadcn/Radix.** Dialogs trap and restore focus, menus/tooltips are keyboard-operable and correctly labelled, and `Escape` works everywhere. That covers a large share of the a11y work for free, and the components are copied into the repo so we can adjust them.
 
-**Note.** Next 16 has breaking changes vs older versions; we follow the bundled docs in `node_modules/next/dist/docs/`. Route handlers have no request body size limit; the 1 MB `proxyClientMaxBodySize` only applies when a `proxy.ts` exists, so we deliberately do not add one.
+**Notes.**
+- Next 16 has breaking changes vs older versions. We follow the bundled docs in `node_modules/next/dist/docs/`.
+- Route handlers have no documented request body limit. `proxyClientMaxBodySize` (default **10 MB**; bodies over it are *silently truncated*, not rejected) applies only when a `proxy.ts` exists. **We must never add a `proxy.ts`**, or uploads would be cut off without an error.
+- The scaffold enables `cacheComponents` and a custom Tailwind Turbopack loader. If `shadcn init` fights that setup, fall back to plain Radix primitives.
 
 ---
 
@@ -40,17 +43,25 @@ Status: **Planned** = decided, not yet built · **Built** = implemented · **Rev
 
 **Context.** Gemini returns timestamps, not images. Someone has to turn timestamps into frames.
 
-**Decision.** The browser already holds the video `File`. After analysis we load it into an off-screen `<video>`, seek to each timestamp, wait for `seeked`, and draw the frame to a `<canvas>` → `Blob` (PNG/JPEG).
+**Decision.** The browser already holds the video `File`. After analysis we load it into an off-screen `<video>` (object URL, so the canvas is not tainted), seek to each timestamp, and draw the frame to a `<canvas>` → **JPEG (quality ≈ 0.9, max 1920 px wide)**.
 
 **Alternatives.**
 - *ffmpeg on the server.* Requires a native binary, keeps the video on disk longer, and every "re-pick" would be a server round trip.
 
 **Why.**
 - Zero server video processing; nothing to install.
-- **Re-picking a screenshot from another moment (feature 2) uses the same seek-and-capture function** behind a scrubber, with instant feedback.
-- Screenshots are at the recording's native resolution.
+- **Re-picking a screenshot from another moment (feature 2) reuses the same seek-and-capture function** behind a scrubber, with instant feedback.
 
-**Tradeoff.** Depends on the browser being able to decode the file. HEVC `.mov` may not decode in Chrome. We detect this (`video.error` / `loadedmetadata` never firing / zero dimensions) *before* uploading and show a specific message (see D10). Captures run sequentially (one seek at a time) because parallel seeks on one element race.
+**Why JPEG with a size cap.** Native Retina PNGs are 2–5 MB each. Twenty of them would make a 50 MB+ `.docx` and bloat IndexedDB. JPEG at 0.9 keeps UI text readable at a fraction of the size.
+
+**Seek details (where browser capture usually breaks).**
+- Captures run **sequentially** on one element. Parallel seeks race.
+- Setting `currentTime` to its current value **never fires `seeked`** (e.g. step 1 at 0:00 right after load). We guard against that and wrap every seek in a timeout that resolves to `capture_failed` for that step only.
+- We draw after `requestVideoFrameCallback` where available (falling back to `seeked`), so the painted frame matches the seek.
+- `loadedmetadata` gets an explicit timeout. If it never fires, the file is `undecodable`.
+- MediaRecorder WebM files can report `duration === Infinity`. We work around it with the "seek to a huge time, then read duration" trick before the 3-minute check.
+
+**Decodability.** `canPlayType("video/quicktime")` returns `""` in Chrome even though Chrome plays H.264 `.mov`. So we **probe by loading the file**, not by MIME type. Modern Chrome on most Macs decodes HEVC too. When decoding does fail, the copy suggests re-exporting as H.264 rather than blaming the browser.
 
 ---
 
@@ -59,19 +70,24 @@ Status: **Planned** = decided, not yet built · **Built** = implemented · **Rev
 **Status:** Planned
 
 **Decision.**
-1. `POST /api/upload`: raw video body. The server streams it to a temp file, uploads it to the **Gemini Files API**, polls until the file is `ACTIVE`, and returns `{ fileUri, mimeType, name }`.
-2. `POST /api/analyze` `{ fileUri, mimeType }`: calls `generateContent` with a response schema and **streams NDJSON progress events** back (`analyzing` → `validating` → `done | error`).
+1. `POST /api/upload`: raw video body (`fetch`). The server checks `Content-Length` and the type, pipes `request.body` to a temp file, uploads it to the **Gemini Files API**, and polls until the file is `ACTIVE`. **The response is an NDJSON stream of stage events:** `received` → `sending_to_gemini` → `gemini_processing` → `ready { fileName, mimeType }` (or `error`).
+2. `POST /api/analyze` `{ fileName }`: the server resolves the file with `files.get` and calls `generateContent` with a response schema. It returns plain JSON: `{ processTitle, steps }` or a typed error. Nothing streams here because a non-streamed `generateContent` has nothing to report until it finishes.
 
-**Why split.**
-- **Upload progress:** `fetch` has no upload-progress events, so the upload uses `XMLHttpRequest` (`upload.onprogress`). Analysis uses `fetch` + `ReadableStream` for streamed events. Each transport does what it is good at.
-- **Retry without re-uploading:** if analysis fails (rate limit, bad JSON), "Try again" re-calls `/api/analyze` with the same `fileUri`. Gemini keeps files for 48 h. The same applies to "Regenerate steps".
+**Why honest stages instead of an upload percentage.** The browser uploads to *localhost*, which finishes in about a second. The real wait (server → Gemini, then Gemini's `PROCESSING` state) happens after that. An XHR progress bar would jump to 100% and then sit there, which is theatre. Streaming stage events from the server shows where time actually goes. Each stage shows elapsed time, with an indeterminate bar.
+
+**Why split into two endpoints.**
+- **Retry without re-uploading:** if analysis fails (rate limit, bad output), "Try again" calls `/api/analyze` with the same `fileName`. Gemini keeps files for 48 h.
 - Each endpoint has one job, which makes errors easier to classify.
 
-**Why stream to a temp file.** `request.blob()` would hold up to a few hundred MB in memory per request. Piping `request.body` to `os.tmpdir()` keeps memory flat; the file is deleted in `finally`.
+**Why the client sends `fileName`, not a URI.** The server resolves the file itself. The client can only refer to files by name, not supply an arbitrary URI for the server to fetch.
 
-**Cancellation.** The client aborts XHR/fetch via `AbortController`. Server handlers pass `request.signal` to the Gemini SDK calls and polling loop so a cancelled job stops spending quota.
+**Why stream to a temp file.** `request.blob()` would hold up to a few hundred MB in memory per request. Piping to `os.tmpdir()` keeps memory flat. The file is deleted in `finally`. *To verify in the spike:* piping `request.body` to disk in a Next 16 route handler, and `request.signal` firing when the client disconnects.
 
-**API key.** Only read on the server from `GEMINI_API_KEY` (`.env.local`, gitignored). Never sent to the client and never committed.
+**Server-side limits.** The client checks everything first, but client checks can be bypassed. The server rejects bodies over **500 MB** (the Files API allows 2 GB) or with a non-video `Content-Type`. The `PROCESSING` poll times out after 2 minutes.
+
+**Cancellation.** The client aborts with `AbortController`. Server handlers pass `request.signal` to the polling loop and SDK calls. This stops *our waiting*. A `generateContent` call already in flight may still be billed.
+
+**Secrets.** `GEMINI_API_KEY` is read only on the server from `.env.local` (gitignored, verified). If it is missing, both endpoints return `missing_api_key` and the UI shows setup instructions instead of a generic failure.
 
 ---
 
@@ -79,32 +95,35 @@ Status: **Planned** = decided, not yet built · **Built** = implemented · **Rev
 
 **Status:** Planned
 
-**Decision.** Call Gemini with `responseMimeType: "application/json"` and a `responseSchema`:
+**Decision.** Call Gemini with `responseMimeType: "application/json"` and a `responseSchema` (OpenAPI subset). Every field is listed in `required`, and `propertyOrdering` is set:
 
 ```ts
 {
   isScreenRecording: boolean,
-  rejectionReason?: string,       // when it isn't a usable recording
+  rejectionReason: string,        // "" when usable
   processTitle: string,           // e.g. "Create a purchase order"
   steps: Array<{
     action: string,               // imperative, e.g. "Click 'New Order'"
     description: string,
     expectedResult: string,
-    timestamp: string,            // "MM:SS" or "MM:SS.s"; parsed client-side
-    highlight?: { box_2d: [ymin, xmin, ymax, xmax] } // 0–1000 normalized
+    timestamp: string,            // "MM:SS", the moment just before the action
+    box_2d: number[]              // ARRAY of INTEGER, min/maxItems 4: [ymin, xmin, ymax, xmax], 0–1000; [] if none
   }>
 }
 ```
 
-The server validates with **zod**. On a schema failure it retries once with the validation error appended to the prompt, then returns a typed `bad_model_output` error.
+The OpenAPI subset has no tuples, so `box_2d` is an integer array with length 4. zod enforces that and the 0–1000 range.
 
-**Why.** Free-text parsing is the most common failure mode of LLM features. A schema plus a validator turns "the model said something weird" into a known, handleable error.
+**Validation and retries.**
+- The server validates with **zod**. On failure it retries once with the validation error added to the prompt. If that fails too, it returns `bad_model_output`.
+- It checks `finishReason`: `MAX_TOKENS` means truncated JSON (→ `bad_model_output`), and `SAFETY` / an empty response → `gemini_blocked`.
+- Steps are **sorted by timestamp, and duplicates are nudged** (+0.5 s) so they can't collide.
 
-**Timestamps as strings.** Gemini is documented and tuned to reference video moments as `MM:SS`. We parse them in one pure, unit-tested function (`parseTimestamp`) and clamp to `[0, duration]`.
+**Timestamps.** `MM:SS` only. Gemini samples video at 1 fps by default, so `MM:SS.s` would be false precision. `parseTimestamp` is a pure, unit-tested function that clamps to `[0, duration]`.
 
-**Model.** Configurable via `GEMINI_MODEL` (default `gemini-2.5-flash`): it has video understanding, structured output and good latency. Pro is an env change away if quality needs it.
+**Model.** Configurable via `GEMINI_MODEL`, default **`gemini-3.8-flash`**. It is the newest non-preview Flash available to the provided key (checked with `models.list` on 2026-11-20). The first spike confirms that it handles video and structured output and accepts `video/quicktime`. `gemini-2.5-flash` is the known-good fallback. We set a **low thinking level** for latency, because this task is extraction rather than reasoning.
 
-**Frame sampling.** Gemini samples video at 1 fps by default. Screen recordings have fast clicks, so we may raise `videoMetadata.fps` (e.g. 2–3) if 1 fps misses steps. A 3-minute video at 1 fps is ~180 frames, well within limits.
+**Not tuning sampling.** We keep the default 1 fps. Higher fps multiplies tokens and can hit free-tier tokens-per-minute limits. If steps are missed, re-picking and adding steps cover the gap.
 
 ---
 
@@ -116,7 +135,7 @@ The server validates with **zod**. On a schema failure it retries once with the 
 
 **Why.** A test script tells a tester what to click; the "Expected result" column describes the outcome in text. If users prefer the after-state for a step, they re-pick it (feature 2).
 
-**Mitigation for drift.** Model timestamps can be off by ~1 s. The re-pick scrubber opens centred on the current timestamp with ±0.1 s / ±1 s stepping, so fixing it takes seconds.
+**Mitigation for drift.** Model timestamps can be off by about 1 s. The re-pick scrubber opens on the current timestamp with ±0.1 s / ±1 s stepping, so fixing it takes seconds.
 
 ---
 
@@ -124,17 +143,17 @@ The server validates with **zod**. On a schema failure it retries once with the 
 
 **Status:** Planned
 
-**Decision.** A single `useReducer` with a discriminated union for the job phase:
+**Decision.** A single `useReducer` with a discriminated union for the job phase. The stages mirror the server's events (D4):
 
 ```
-idle → validating → uploading{progress} → processing → analyzing → capturing{done,total} → ready
-          ↓              ↓                      ↓            ↓              ↓
-                                   error{kind, retryable, retryFrom}
+idle → validating → uploading{stage, startedAt} → analyzing → capturing{done,total} → ready
+          ↓                    ↓                      ↓              ↓
+                      error{kind, retryFrom: "upload" | "analyze" | "capture"}
 ```
 
 Steps live in a separate reducer (`add | update | remove | restore | move | setScreenshot | setHighlight`).
 
-**Why.** Impossible states (e.g. "uploading and showing results") can't be represented. Every phase maps to exactly one UI and one live-region message. `retryFrom` says where retry resumes (re-upload vs re-analyze vs re-capture). Reducers are pure and unit-tested.
+**Why.** Impossible states (e.g. "uploading and showing results") can't be represented. Every phase maps to exactly one UI and one status message. `retryFrom` says where retry resumes, e.g. re-analyze without re-uploading. Both reducers are pure and unit-tested.
 
 ---
 
@@ -142,30 +161,44 @@ Steps live in a separate reducer (`add | update | remove | restore | move | setS
 
 **Status:** Planned
 
-**Decision.** Persist the current project (video `Blob`, steps, screenshot `Blob`s, highlight rects, Gemini `fileUri`) to IndexedDB via `idb-keyval`. Step edits save **500 ms after the last keystroke** (debounced), plus an immediate flush on `visibilitychange`/`pagehide`. A small "Saving… / Saved" indicator in the header.
+**Decision.** Persist the current project to IndexedDB (`idb-keyval`) **under separate keys, so a text edit never rewrites binary data**:
 
-**Why.** "The output is never right the first time": users will spend 10+ minutes editing. Losing that on a refresh would be the worst bug in the product. IndexedDB (not localStorage) because we store binary blobs of many MB.
+| Key | Content | Written when |
+|---|---|---|
+| `video` | Original video `Blob` | Once, after validation |
+| `shot:<stepId>` | Screenshot JPEG `Blob` | On capture / re-pick |
+| `project` | JSON: title, steps (text, timestamp, highlight), Gemini `fileName` + `uploadedAt` | **Debounced 500 ms** after the last edit, plus a best-effort flush on `pagehide` |
 
-**Scope.** One project at a time with "Start new". A project list is a natural next step but not needed for the core flow.
+A "Saving… / Saved" indicator sits in the header.
 
-**Tradeoff.** Data lives in one browser on one machine. No accounts/sync, which fits running locally.
+**Why.** "The output is never right the first time": users will spend 10+ minutes editing, and losing that on a refresh would be the worst bug in the product. IndexedDB (not localStorage) because we store binary blobs of many MB.
+
+**Honest limits.**
+- The `pagehide` flush is best-effort, because browsers don't guarantee async IndexedDB writes during unload. At worst, the last ~500 ms of typing is lost.
+- A `QuotaExceededError` surfaces as `storage_full`. The editor keeps working in memory and warns that changes won't survive a refresh.
+- Data lives in one browser on one machine. No accounts or sync.
+
+**Scope.** One project at a time. **"Start new" clears IndexedDB and deletes the Gemini file** (`files.delete`) after confirming.
 
 ---
 
-## D9. Highlights are data, not pixels; Gemini suggests them
+## D9. One highlight per step: Gemini suggests it, the user adjusts it
 
-**Status:** Planned
+**Status:** Planned, **timeboxed to 30 minutes** (the first feature cut if it overruns)
 
-**Decision.** Each step can have one or more highlight rectangles stored as **normalized coordinates (0–1)**. Gemini is asked for a `box_2d` around the UI element acted on; we convert it and show it as a *suggested* highlight the user can move, resize, delete or redraw. Highlights are drawn as an SVG overlay in the UI and **composited into the image only at export**.
+**Decision.** Each step has **at most one** highlight rectangle, stored as **normalized coordinates (0–1)**.
+- Gemini's `box_2d` (0–1000) is converted into a *suggested* rectangle.
+- The user can move or resize it with the pointer, nudge it with the arrow keys, delete it, or add one if none was suggested.
+- It is drawn as an SVG overlay and **composited into the image only at export**.
 
 **Why.**
-- Normalized coordinates work at any display size and survive re-picking a frame.
+- Normalized coordinates work at any display size.
 - Keeping the original screenshot means a highlight can always be edited or removed.
 - A model-suggested box is the "creative" step: most of the time the user only nudges it.
 
-**Accessibility.** Rectangles can be moved and resized with the arrow keys (Shift = larger steps). The overlay has an accessible name ("Highlight 1 on step 3 screenshot") and Delete removes it.
+**Known risk.** The box refers to the frame Gemini sampled, which may differ slightly from the frame we capture at the parsed timestamp. Box accuracy on video frames is also not documented. That is why the box is a suggestion, and why it is *hidden* after the user re-picks a different moment. Fallback if accuracy is poor: send the captured JPEG back to Gemini as an image and ask for the box on that exact frame.
 
-**Risk.** Bounding boxes from video frames can be imprecise. That's why they're suggestions and are trivially editable.
+**Accessibility.** The rectangle is a focusable element named "Highlight on step 3 screenshot". Arrows move it, `Shift` + arrows move it 10×, `Alt` + arrows resize it, and Delete removes it. Explicit buttons ("Remove highlight", "Add highlight") give a non-drag alternative.
 
 ---
 
@@ -175,32 +208,38 @@ Steps live in a separate reducer (`add | update | remove | restore | move | setS
 
 | Kind | Detected where | User sees | Action |
 |---|---|---|---|
-| `unsupported_type` | client, before upload | "That's a .pdf. Upload an MP4, MOV or WebM screen recording." | Choose another file |
-| `too_long` | client (`loadedmetadata`) | "This video is 4:12. Recordings must be 3 minutes or less." | Choose another file |
-| `too_large` | client | Size limit with actual size | Choose another file |
-| `undecodable` | client (hidden `<video>` fails) | "Your browser can't play this video (often HEVC). Re-export as H.264 or try Safari." | Choose another file |
-| `network` | client | "Connection lost during upload." | Retry (re-upload) |
-| `rate_limited` (429) | server | "Gemini is busy. Retrying in Ns…" (auto-retry with backoff, then manual) | Retry |
-| `gemini_failed` (5xx / file `FAILED`) | server | "Gemini couldn't process the video." | Retry / choose another |
-| `bad_model_output` | server (zod) | "We couldn't read the AI's response." | Retry analysis (no re-upload) |
-| `not_screen_recording` | model flag | Model's `rejectionReason` + example of a good recording | Choose another file |
-| `no_steps` | model returned `[]` | Empty state with "Add steps manually" (the video stays available for capture) | Add manually / regenerate |
-| `capture_failed` | client | Placeholder on that step only + "Pick frame" | Re-pick |
+| `missing_api_key` | server | "GEMINI_API_KEY isn't set. Add it to .env.local and restart." | None (setup) |
+| `unsupported_type` | client + server | "That's a .pdf. Upload an MP4, MOV or WebM screen recording." | Choose another file |
+| `too_long` | client | "This video is 4:12. Recordings must be 3 minutes or less." | Choose another file |
+| `too_large` | client + server | "This file is 640 MB. The limit is 500 MB." | Choose another file |
+| `undecodable` | client (load probe + timeout) | "This video can't be played here. Re-export it as H.264 MP4." | Choose another file |
+| `network` | client | "Connection lost." | Retry from the failed stage |
+| `rate_limited` (429) | server | "Gemini is rate-limiting requests. Wait a moment and try again." | Retry (no re-upload) |
+| `gemini_failed` (5xx / file `FAILED` / poll timeout) | server | "Gemini couldn't process the video." | Retry / choose another file |
+| `gemini_blocked` (`SAFETY` / empty) | server | "Gemini declined to analyze this video." | Choose another file |
+| `bad_model_output` (zod / `MAX_TOKENS`) | server | "The AI's response came back incomplete." | Retry analysis (no re-upload) |
+| `file_expired` | server (`files.get` 404 on a project restored after 48 h) | Handled silently: re-upload from the stored video blob, then retry | Automatic |
+| `not_screen_recording` | model flag | The model's `rejectionReason` + what a good recording looks like | Choose another file |
+| `no_steps` | model returned `[]` | Empty state with "Add a step manually" | Add manually |
+| `capture_failed` | client (seek timeout) | Placeholder on that step only + "Pick frame" | Re-pick |
+| `storage_full` | client (`QuotaExceededError`) | Banner: "Changes won't survive a refresh. Export now." | Export |
 | `cancelled` | user | Back to the dropzone, no error styling | None |
 
-Validation that can run in the browser runs there first, so obviously bad files fail in milliseconds without spending upload time or quota. An error boundary (`error.tsx`) catches anything unexpected and offers "Reload" without losing persisted data.
+Validation that can run in the browser runs there first, so obviously bad files fail in milliseconds without spending upload time or quota. An error boundary (`error.tsx`) catches anything unexpected and offers "Reload", and persisted data survives the reload.
 
 ---
 
-## D11. Export: Word first, Markdown second, print/PDF third
+## D11. Export: Word only
 
 **Status:** Planned
 
-**Decision.** Build `.docx` **client-side** with the `docx` library: a title, then a table with columns *# · Action · Description · Expected result · Screenshot*. Screenshots have highlights composited in and are scaled to fit the page width. Markdown export (images as a zip or inline data) and a print stylesheet cover the other paths.
+**Decision.** Build `.docx` **client-side** with the `docx` library:
+- A **landscape** page with the title, then a table with columns *# · Action · Description · Expected result · Screenshot*.
+- Screenshots have the highlight composited in, are passed to `ImageRun` as bytes with explicit dimensions, and are scaled to the column width.
 
 **Why client-side.** All the data (including image blobs) is already in the browser. No server round trip and nothing to clean up.
 
-**Why Word first.** The brief: output "has to end up in a client's template", and consultants live in Word. Tables are easy to paste into an existing template.
+**Why only Word.** The brief: output "has to end up in a client's template", and consultants live in Word. Markdown and print/PDF were cut for time (D15).
 
 ---
 
@@ -209,10 +248,11 @@ Validation that can run in the browser runs there first, so obviously bad files 
 **Status:** Planned
 
 - Inline-editable fields (auto-growing textareas). No modal "edit mode".
-- Reorder with **dnd-kit**, which supports a keyboard sensor and screen-reader announcements. Also explicit "Move up/down" buttons (⌘↑ / ⌘↓ when focus is in a step).
-- Delete shows an **undo toast** (5 s) instead of a confirmation dialog: faster, and mistakes are recoverable.
-- "Add step" inserts after the focused step and captures a frame at that step's timestamp + 1 s as a starting point.
-- Each step shows its timestamp as a button that jumps the preview video there.
+- Reordering uses **Move up / Move down buttons** on each step. Focus follows the moved step, and a status message announces "Step 3 moved to position 2". This meets WCAG 2.5.7 without drag. Drag-and-drop (dnd-kit) is a stretch goal.
+- **No custom keyboard shortcuts inside steps.** In a macOS textarea, ⌘↑/↓, ⌘⌫ and ⌘Z already mean caret-to-start/end, delete-to-line-start and native undo. Overriding them would break text editing. Tab order plus labelled buttons are the keyboard flow.
+- Delete shows a toast with an **Undo button that stays until dismissed or until the next delete** (WCAG 2.2.1 forbids a short timer). Focus moves to the next step, or to the previous one if the last step was deleted.
+- "Add step" inserts after the current step at its timestamp + 1 s and captures that frame as a starting point.
+- Each step shows its timestamp as a button that opens the frame picker at that moment.
 
 ---
 
@@ -220,15 +260,17 @@ Validation that can run in the browser runs there first, so obviously bad files 
 
 **Status:** Planned
 
-Target: **WCAG 2.2 AA**, checked with keyboard-only walkthroughs and axe DevTools.
+Target: WCAG 2.2 AA where it applies. We check it with **a keyboard-only walkthrough and an axe pass, and list known gaps in this doc** rather than claiming full conformance after a 3-hour build.
 
 - Landmarks (`header`, `main`) and a logical heading order.
-- The dropzone is a real `<button>` + hidden `<input type="file">`; drag-and-drop is an enhancement, not the only path.
-- One `aria-live="polite"` region announces phase changes ("Uploading 45%" is throttled to 10% increments so screen readers aren't flooded); errors use `role="alert"`.
-- Focus management: on success focus moves to the results heading; on error, to the error message; dialogs return focus to their trigger.
-- Every input has a visible label (or `aria-label` where the column header is the visual label).
-- Screenshot `alt` = the step's action text.
-- Visible focus rings; `prefers-reduced-motion` disables non-essential animation; AA contrast in the palette.
+- The dropzone is a real `<button>` + hidden `<input type="file">`. Drag-and-drop is an enhancement, not the only path.
+- One `aria-live="polite"` region announces stage changes.
+- Errors: focus moves to the error panel's heading. The panel is *not* also `role="alert"`, which would announce it twice.
+- On success, focus moves to the results heading **only after screenshots finish capturing**. While they capture, a status message reports progress and focus stays put.
+- Dialogs return focus to their trigger.
+- Every input has a visible label.
+- Screenshot `alt` = "Screenshot for step 3". The action text sits right next to it, so repeating it in the alt would be redundant.
+- Visible focus rings; `prefers-reduced-motion` respected; AA contrast in the palette.
 
 ---
 
@@ -236,12 +278,42 @@ Target: **WCAG 2.2 AA**, checked with keyboard-only walkthroughs and axe DevTool
 
 **Status:** Planned
 
-Given 3 hours: **Vitest unit tests on pure logic** (`parseTimestamp`, the zod schema / Gemini response normalisation, box conversion, the reducers, and the docx table builder's data mapping). The UI is verified manually against the example videos and with an axe pass. Playwright end-to-end tests with a mocked Gemini are the next investment.
+Given 3 hours: **Vitest unit tests on pure logic**: `parseTimestamp`, `box_2d` ↔ rect conversion, the zod schema / response normalization (sorting, de-duplication), and the two reducers. The UI is verified manually against the example videos plus an axe pass. Next investment: Playwright end-to-end tests with a recorded Gemini response fixture.
 
 ---
 
 ## D15. Scope cuts (deliberate)
 
-- **Custom columns per client:** valuable, but it changes the data model, editor and export at once. Cut in favour of depth on features 1–4. The export builder takes a column list internally so this is an extension, not a rewrite.
-- **Accounts, multiple projects, sharing:** not needed to prove the workflow.
-- **Server-side job queue:** with one local user, a streaming request is enough. Production would use a job queue + polling/SSE so a closed tab doesn't kill a job.
+The reviewer estimated the original plan at 6–8 hours. These cuts are ordered from most risk for least value:
+
+1. **Markdown and print/PDF export.** Word is what consultants need.
+2. **Streaming on `/api/analyze`.** There was nothing to stream.
+3. **dnd-kit drag reordering.** Move buttons are accessible and enough. Stretch goal.
+4. **Automatic rate-limit backoff with a countdown.** Manual retry instead, which needs no re-upload.
+5. **Multiple and free-drawn highlights.** One per step.
+6. **Custom columns per client.** They change the data model, editor and export at once. The docx builder takes a column list internally, so this is an extension, not a rewrite.
+7. **Sampling-rate (fps) tuning and a "Regenerate" button.**
+8. **Accounts, multiple projects, sharing, a server-side job queue.**
+
+**Build order and timebox:** API spike (20 min) → upload/analyze/capture (50) → editing + persistence (35) → re-pick (20) → docx (25) → highlights (20) → a11y and error pass (10).
+
+---
+
+## Review log
+
+An independent AI reviewer (a separate model with no stake in the plan) critiqued the first draft. Changes made as a result:
+
+| Area | Before | After | Why |
+|---|---|---|---|
+| D4 progress | XHR upload percentage | Server-streamed stages + elapsed time | Localhost upload takes about a second, so the real wait was invisible |
+| D8 storage | One `Project` record including blobs | Separate keys; only the JSON is debounced | A debounced save was rewriting hundreds of MB |
+| D5 schema | Tuple `box_2d`, `MM:SS.s`, optional fields | Int array (length 4), `MM:SS`, all required, `finishReason` checks | Tuples aren't expressible. Sub-second precision is false at 1 fps |
+| D12 keys | ⌘↑/⌘↓/⌘⌫/⌘Z shortcuts | Buttons only | They collide with native textarea editing on macOS |
+| D9 highlights | One or more, free drawing | One per step, timeboxed | Riskiest feature; the docs were inconsistent |
+| D5 model | `gemini-2.5-flash` assumed | `gemini-3.8-flash`, checked with `models.list` | Verify instead of assume |
+| D2 | "1 MB proxy limit" | 10 MB, silently truncated | It was wrong. The bundled docs say 10 MB |
+| D4 security | Client sent `fileUri` | Client sends `fileName`; the server resolves it; server-side size/type checks | Don't let the client choose the URI; client checks can be bypassed |
+| D10 | 12 kinds | Added `missing_api_key`, `file_expired`, `gemini_blocked`, `storage_full`, poll timeout | Gaps an interviewer would probe |
+| D13 | `role="alert"` + focus move; 5 s undo toast | Focus move only; undo stays until dismissed | Double announcement; WCAG 2.2.1 |
+| D3 | Native PNG | JPEG 0.9, max 1920 px | 2–5 MB per PNG would bloat the docx and storage |
+| D15 | Markdown, print, dnd-kit, auto-backoff | Cut | Fit 3 hours |

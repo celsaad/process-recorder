@@ -1,59 +1,61 @@
-# UX states, keyboard map and accessibility
+# UX states, keyboard flow and accessibility
 
 ## Screen states
 
 | State | What's on screen | Focus / announcement |
 |---|---|---|
-| **Empty (first visit)** | Dropzone ("Drop a screen recording or choose a file"), accepted formats, 3-minute limit, a 3-step "how it works" | Page heading. Dropzone is the first tab stop after the header |
-| **Restored project** | The editor with the last project, plus a "Start new" button | Polite announcement: "Restored your last project" |
+| **Empty (first visit)** | Dropzone ("Drop a screen recording or choose a file"), accepted formats, 3-minute / 500 MB limits, a 3-step "how it works" | Page heading. Dropzone is the first tab stop after the header |
+| **Restored project** | The editor with the last project, plus "Start new" | Status: "Restored your last project" |
 | **Validating** | Brief inline spinner on the dropzone (milliseconds) | None |
-| **Uploading** | Stage list (Upload ▸ Process ▸ Analyze ▸ Screenshots), progress bar with %, file name/size, **Cancel** | Live: "Uploading, 40%" (in 10% steps) |
-| **Processing / Analyzing** | Same stage list. Indeterminate bar with elapsed time and "usually 20–60 s" | Live: stage name on change |
-| **Capturing** | Step cards render immediately with skeleton screenshots that fill in one by one ("Screenshots 3/12") | Live: "Capturing screenshots" |
-| **Ready** | Editor: title, step cards, export menu, save indicator | Focus moves to the results heading. Live: "12 steps ready" |
-| **No steps** | Explanation + "Add a step manually" + "Regenerate" | Focus on the message |
-| **Error** | Error panel with cause, what to do, and primary action (see DECISIONS D10) | `role="alert"`, focus on the panel |
-| **Cancelled** | Back to the dropzone | Live: "Cancelled" |
+| **Uploading** | Stage list (Receiving ▸ Sending to Gemini ▸ Gemini processing ▸ Analyzing ▸ Screenshots), with elapsed time on the active stage, an indeterminate bar, file name/size, **Cancel** | Status: stage name on each change |
+| **Analyzing** | Same stage list | Status: "Analyzing steps" |
+| **Capturing** | Step cards render immediately with skeleton screenshots that fill in one by one ("Screenshots 3/12") | Status: "Capturing screenshots". Focus stays put |
+| **Ready** | Editor: title, step cards, Export button, save indicator | Focus moves to the results heading **after** capture ends. Status: "12 steps ready" |
+| **No steps** | Explanation + "Add a step manually" | Focus on the message heading |
+| **Error** | Error panel: cause, what to do, primary action (see DECISIONS D10) | Focus on the panel heading (no `role="alert"`, to avoid double announcements) |
+| **Storage full** | Persistent banner: "Changes won't survive a refresh. Export now." | Status message |
+| **Cancelled** | Back to the dropzone | Status: "Cancelled" |
 
-Double submits are prevented: the dropzone is disabled during a job, and dropping a new file while a project exists asks "Replace current project?".
+**Double submits are prevented.** The dropzone is disabled during a job. Dropping a new file while a project exists asks "Replace current project?". "Start new" confirms before clearing local data and the Gemini file.
+
+**Honesty rule.** No fake percentages. The upload to localhost is near-instant, so stages and elapsed time tell the user where the time actually goes (DECISIONS D4).
 
 ## Debounce / throttle
 
 | Where | Strategy | Why |
 |---|---|---|
-| Step field edits → IndexedDB | Debounce 500 ms + flush on `pagehide` / `visibilitychange` | Don't write MBs on every keystroke. Never lose the last edit |
-| Upload progress → live region | Announce only on 10% boundaries | Don't flood screen readers |
-| Frame-picker scrubbing → preview | Only one seek in flight. The latest requested time wins | Seeking is async. Queuing every input event makes it lag behind the cursor |
-| Highlight drag → state | `requestAnimationFrame`-batched updates, commit on pointer-up | Smooth drag without re-rendering the list per pixel |
-| Rate-limit retry | Exponential backoff with jitter (max 3 attempts), countdown shown | Visible and cancellable |
+| Step field edits → IndexedDB `project` key | Debounce 500 ms + best-effort flush on `pagehide` | Write only the JSON on typing pauses. Blobs are written separately, once |
+| Frame-picker scrubbing → preview | Only one seek in flight. The latest requested time wins | Seeking is async. Queuing every input event makes the preview lag behind the cursor |
+| Highlight drag → state | `requestAnimationFrame`-batched overlay updates, committed on pointer-up | Smooth drag without re-rendering the step list per pixel |
+| Elapsed-time counter | 1 s interval, *not* announced to screen readers | Visual only. Announcing it would flood screen readers |
 
-## Keyboard map
+## Keyboard flow
+
+There are deliberately **no custom shortcuts inside step cards**. The fields are textareas, and on macOS ⌘↑/↓, ⌘⌫ and ⌘Z already mean things there (DECISIONS D12). Keyboard users rely on Tab order and labelled buttons:
 
 | Context | Keys | Action |
 |---|---|---|
-| Global | `Tab` / `Shift+Tab` | Logical order: header → dropzone or steps → export |
-| Step card | `⌘↑` / `⌘↓` (Ctrl on Windows) | Move step up / down |
-| Step card | `⌘⌫` | Delete step (undo toast) |
-| Drag handle | `Space`, arrows, `Space` | dnd-kit keyboard reorder, with announcements |
-| Frame picker | `←` / `→` | ±0.1 s (`Shift` = ±1 s) |
-| Frame picker | `Enter` / `Esc` | Use this frame / cancel |
-| Highlight | Arrows (`Shift` = 10×) | Move. `Alt+arrows` resize |
-| Highlight | `Delete` | Remove |
-| Toast | `⌘Z` | Undo the last delete |
+| Page | `Tab` / `Shift+Tab` | Header → dropzone or step list → Export |
+| Step card | `Tab` | Action → Description → Expected result → Pick frame → Move up → Move down → Delete |
+| Move up / down | `Enter` / `Space` | Moves the step. Focus stays on the same button, now in its new position. Status: "Step moved to position 2" |
+| Delete | `Enter` / `Space` | Focus moves to the next step (or the previous one if it was last). The toast's Undo button is reachable by Tab |
+| Frame picker (dialog) | `←` / `→` on the slider | ±0.1 s (`Shift` = ±1 s) |
+| Frame picker | `Enter` / `Esc` | Use this frame / cancel (focus returns to "Pick frame") |
+| Highlight (focused) | Arrows / `Shift` + arrows / `Alt` + arrows / `Delete` | Move / move 10× / resize / remove |
 
-Shortcuts are listed in a "Keyboard shortcuts" dialog (`?`).
+## Accessibility checklist (target WCAG 2.2 AA; verify with a keyboard walkthrough + axe, record gaps)
 
-## Accessibility checklist (WCAG 2.2 AA)
-
-- [ ] Landmarks and one `h1`. Steps are a list (`ol`) of `article`s with headings "Step N"
-- [ ] Every control is reachable and operable by keyboard. No keyboard traps outside modal dialogs
+- [ ] Landmarks and one `h1`. Steps are an `ol` of `article`s, each with a heading "Step N"
+- [ ] Every control is reachable and operable by keyboard. No traps outside modal dialogs
 - [ ] Visible focus indicator on every interactive element
 - [ ] All inputs labelled. Icon buttons have `aria-label` (e.g. "Delete step 3")
-- [ ] One polite live region for status. Errors use `role="alert"`
-- [ ] Focus moved deliberately on phase changes and dialog close
-- [ ] Screenshot `alt` = step action. Decorative icons are `aria-hidden`
+- [ ] One polite live region for status. Errors are announced by moving focus, not also by `role="alert"`
+- [ ] Focus moved deliberately: after capture, after delete, on error, on dialog close
+- [ ] Screenshot `alt` = "Screenshot for step N". Decorative icons are `aria-hidden`
+- [ ] No time limits: the Undo toast stays until dismissed (2.2.1)
 - [ ] Text and UI contrast ≥ 4.5:1 / 3:1
 - [ ] `prefers-reduced-motion` respected
-- [ ] Target size ≥ 24×24 px (WCAG 2.5.8)
-- [ ] Drag operations have a non-drag alternative (WCAG 2.5.7): move buttons, keyboard highlight editing
-- [ ] axe DevTools: zero violations on empty, progress, ready and error states
+- [ ] Target size ≥ 24×24 px (2.5.8)
+- [ ] Every drag has a non-drag alternative (2.5.7): move buttons, keyboard and button controls for highlights
+
+**Known gaps:** (fill in after the axe pass)

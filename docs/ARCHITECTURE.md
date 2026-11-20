@@ -11,25 +11,27 @@ sequenceDiagram
     participant G as Gemini API
 
     U->>B: Drop / choose video
-    B->>B: Validate type, size, duration, decodability (hidden <video>)
-    B->>UP: XHR raw body (upload progress %)
-    UP->>UP: Stream to temp file
+    B->>B: Validate type, size, duration, decodability (load probe)
+    B->>UP: fetch raw body
+    UP->>UP: Check size/type, stream to temp file
+    UP-->>B: NDJSON: received
     UP->>G: Files API upload
-    loop until ACTIVE
+    UP-->>B: NDJSON: sending_to_gemini
+    loop until ACTIVE (2 min timeout)
         UP->>G: files.get
     end
-    UP-->>B: { fileUri, mimeType }
-    B->>AN: fetch { fileUri }
-    AN->>G: generateContent(video + prompt, responseSchema)
-    AN->>AN: zod validate (1 retry with error feedback)
-    AN-->>B: NDJSON progress … then { steps }
-    B->>B: Seek <video> to each timestamp → canvas → Blob
-    B->>B: Persist project to IndexedDB
-    U->>B: Edit, reorder, re-pick frames, highlight
-    B->>B: Export .docx / Markdown (client-side)
+    UP-->>B: NDJSON: gemini_processing … ready { fileName }
+    B->>AN: fetch { fileName }
+    AN->>G: files.get → generateContent(video + prompt, responseSchema)
+    AN->>AN: finishReason check, zod validate (1 retry), sort/de-dupe
+    AN-->>B: JSON { processTitle, steps } | { error }
+    B->>B: Seek <video> to each timestamp → canvas → JPEG
+    B->>B: Persist to IndexedDB (video, shots, project JSON)
+    U->>B: Edit, reorder, re-pick frames, adjust highlight
+    B->>B: Export .docx (client-side)
 ```
 
-The server is a thin, stateless adapter around Gemini. It holds the API key and does nothing else.
+The server is a thin, stateless adapter around Gemini. It holds the API key and enforces limits, and does nothing else.
 Everything the user produces (steps, screenshots, highlights) lives in the browser. See [D3](DECISIONS.md#d3-screenshots-are-captured-in-the-browser-not-on-the-server) and [D8](DECISIONS.md#d8-local-persistence-in-indexeddb-with-debounced-autosave).
 
 ## Module map (planned)
@@ -40,57 +42,80 @@ src/
     page.tsx                 # composition only: header, dropzone | progress | editor
     error.tsx                # error boundary
     api/
-      upload/route.ts        # stream body → temp file → Gemini Files API → poll ACTIVE
-      analyze/route.ts       # generateContent + zod validate, NDJSON stream
+      upload/route.ts        # limits → temp file → Files API → poll ACTIVE, NDJSON stages
+      analyze/route.ts       # files.get → generateContent → validate → JSON
   server/
-    gemini.ts                # SDK client, upload/poll/generate, error classification
+    gemini.ts                # SDK client, upload/poll/generate/delete, error classification
     prompt.ts                # the prompt + response schema
   lib/
     schema.ts                # zod schemas shared by server and client
     timestamp.ts             # parseTimestamp / formatTimestamp (pure, tested)
     geometry.ts              # box_2d (0–1000) ↔ normalized rect (pure, tested)
+    normalize.ts             # sort + de-dupe steps (pure, tested)
     errors.ts                # AppError kinds → message + action (D10)
-    job-machine.ts           # job phase reducer (D7)
-    steps-reducer.ts         # steps reducer (D7)
-    frames.ts                # seek-and-capture from a <video> (D3)
-    persistence.ts           # IndexedDB load/save, debounced (D8)
+    job-machine.ts           # job phase reducer (D7, tested)
+    steps-reducer.ts         # steps reducer (D7, tested)
+    frames.ts                # load probe + seek-and-capture with timeouts (D3)
+    persistence.ts           # IndexedDB keys + debounced project save (D8)
     export-docx.ts           # docx builder (D11)
-    export-markdown.ts
-    transport.ts             # XHR upload with progress, NDJSON reader, AbortController
+    transport.ts             # NDJSON reader, AbortController wiring
   components/
     upload/Dropzone.tsx
-    upload/JobProgress.tsx   # stage list + live region + cancel
-    steps/StepList.tsx       # dnd-kit sortable
-    steps/StepCard.tsx       # inline fields, timestamp button, actions
+    upload/JobProgress.tsx   # stage list + elapsed time + live region + cancel
+    steps/StepList.tsx
+    steps/StepCard.tsx       # inline fields, move/delete buttons, frame button
     frames/FramePicker.tsx   # dialog with scrubber (feature 2)
     highlight/HighlightEditor.tsx  # SVG overlay, pointer + keyboard (feature 4)
-    export/ExportMenu.tsx
+    export/ExportButton.tsx
     ui/…                     # shadcn components
 ```
 
 **Rule of thumb:** anything in `lib/` is framework-free and unit-testable. Components connect it to React.
 
-## Data model
+## API contracts
 
 ```ts
+// POST /api/upload   body: raw video bytes, Content-Type: video/*
+// response: application/x-ndjson, one event per line
+type UploadEvent =
+  | { type: "stage"; stage: "received" | "sending_to_gemini" | "gemini_processing" }
+  | { type: "ready"; fileName: string; mimeType: string }
+  | { type: "error"; error: AppError };
+
+// POST /api/analyze  body: { fileName: string }
+type AnalyzeResponse =
+  | { ok: true; processTitle: string; steps: RawStep[] }  // sorted, validated
+  | { ok: false; error: AppError };
+
+type AppError = { kind: ErrorKind; message: string; retryable: boolean };
+```
+
+## Data model (client)
+
+```ts
+// IndexedDB key "project" (JSON only, debounced save)
 type Project = {
   id: string;
   title: string;                 // from Gemini processTitle, editable
-  video: { blob: Blob; name: string; durationSec: number; width: number; height: number };
-  gemini?: { fileUri: string; mimeType: string; expiresAt: string };
+  video: { name: string; durationSec: number; width: number; height: number };
+  gemini?: { fileName: string; mimeType: string; uploadedAt: string }; // expires after 48 h
   steps: Step[];
   updatedAt: string;
 };
 
 type Step = {
-  id: string;                    // stable id for React keys & dnd-kit
+  id: string;                    // stable id for React keys and the shot:<id> key
   action: string;
   description: string;
   expectedResult: string;
   timestampSec: number;          // source of truth for the frame
-  screenshot?: Blob;             // captured at timestampSec, original pixels
-  highlights: Rect[];            // normalized 0–1, composited only on export
+  captureState: "pending" | "ok" | "failed";
+  highlight: Rect | null;        // normalized 0–1, composited only on export
+  highlightSource: "gemini" | "user" | null;
 };
 
 type Rect = { x: number; y: number; w: number; h: number };
+
+// IndexedDB key "video"         → Blob (written once)
+// IndexedDB key "shot:<stepId>" → JPEG Blob (written on capture / re-pick)
 ```
