@@ -102,6 +102,7 @@ export function useProcessRecorder(): Recorder {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [storageFull, setStorageFull] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<ConfirmKind | null>(null);
+  const [pendingFileName, setPendingFileName] = useState<string | null>(null);
 
   // Bumped by cancel / start new / replace / unmount. Async work started under an older
   // generation drops its results instead of touching the new state.
@@ -227,9 +228,10 @@ export function useProcessRecorder(): Recorder {
 
   // ---------- confirm dialog ----------
 
-  const askConfirm = useCallback((kind: ConfirmKind) => {
+  const askConfirm = useCallback((kind: ConfirmKind, fileName: string | null = null) => {
     confirmResolverRef.current?.(false);
     setPendingConfirm(kind);
+    setPendingFileName(fileName);
     return new Promise<boolean>((resolve) => {
       confirmResolverRef.current = resolve;
     });
@@ -239,6 +241,7 @@ export function useProcessRecorder(): Recorder {
     const resolve = confirmResolverRef.current;
     confirmResolverRef.current = null;
     setPendingConfirm(null);
+    setPendingFileName(null);
     resolve?.(ok);
   }, []);
 
@@ -582,7 +585,7 @@ export function useProcessRecorder(): Recorder {
           // rather than left in IndexedDB under the new video.
           await restoreRef.current;
           if (savedRef.current) {
-            if (!(await askConfirm("replace"))) return;
+            if (!(await askConfirm("replace", file.name))) return;
             await teardown("reset");
           } else if (sourceRef.current || projectRef.current) {
             // An unsaved earlier attempt (e.g. analysis failed): drop its Gemini file and stored video (D8).
@@ -687,6 +690,7 @@ export function useProcessRecorder(): Recorder {
     startNew,
     confirmStartNew,
     pendingConfirm,
+    pendingFileName,
     resolveConfirm,
     setTitle,
     repick,

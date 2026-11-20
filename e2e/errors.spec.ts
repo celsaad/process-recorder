@@ -19,7 +19,7 @@ test("rate_limited: Retry re-runs analysis without a second upload", async ({ pa
   await page.goto("/");
   await uploadSample(page);
 
-  await expect(page.getByRole("heading", { name: /too many requests/i })).toBeVisible({
+  await expect(page.getByRole("heading", { name: /gemini is busy right now/i })).toBeVisible({
     timeout: 45_000,
   });
   await expect(page.getByText(/rate-limiting requests/i)).toBeVisible();

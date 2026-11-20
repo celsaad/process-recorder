@@ -124,6 +124,8 @@ export type Recorder = {
   startNew: () => void;                 // opens the confirm; confirmStartNew() does the work
   confirmStartNew: () => Promise<void>;
   pendingConfirm: "start_new" | "replace" | null;
+  /** While `pendingConfirm` is "replace": the name of the file waiting to be processed. */
+  pendingFileName: string | null;
   resolveConfirm: (ok: boolean) => void;
   setTitle: (t: string) => void;
   repick: (stepId: string, sec: number, shot: Blob) => Promise<void>;

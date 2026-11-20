@@ -70,11 +70,25 @@ export async function expectProjectStored(page: Page, text: string): Promise<voi
       () =>
         page.evaluate(
           () =>
-            new Promise<string>((resolve) => {
+            new Promise<string>((resolve, reject) => {
               const open = indexedDB.open("keyval-store");
+              open.onerror = () => reject(new Error(`Couldn't open keyval-store: ${open.error?.message}`));
+              // A missing database would otherwise be created empty here, and `transaction` would throw.
+              open.onupgradeneeded = () => {
+                open.transaction?.abort();
+                reject(new Error("keyval-store doesn't exist: the app hasn't saved anything yet"));
+              };
               open.onsuccess = () => {
-                const get = open.result.transaction("keyval").objectStore("keyval").get("project");
-                get.onsuccess = () => resolve(JSON.stringify(get.result ?? null));
+                const db = open.result;
+                try {
+                  const get = db.transaction("keyval").objectStore("keyval").get("project");
+                  get.onsuccess = () => resolve(JSON.stringify(get.result ?? null));
+                  get.onerror = () => reject(new Error(`Couldn't read "project": ${get.error?.message}`));
+                } catch (e) {
+                  reject(e);
+                } finally {
+                  db.close();
+                }
               };
             }),
         ),
