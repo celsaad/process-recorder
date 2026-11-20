@@ -1,6 +1,292 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Slider } from "@/components/ui/slider";
+import { useAnnounce } from "@/components/shell/LiveRegion";
+import { toAppError } from "@/lib/errors";
+import { captureFromVideo } from "@/lib/frames";
+import { formatTimestamp } from "@/lib/timestamp";
 import type { FramePickerProps } from "@/lib/ui-contracts";
 
-export function FramePicker(props: FramePickerProps) {
-  void props;
-  return null;
+/** Slider thumb diameter in px (the shadcn thumb is overridden below). The marker offset depends on it. */
+const THUMB_PX = 22;
+const SEEK_SETTLE_TIMEOUT_MS = 3000;
+
+const roundTenth = (v: number) => Math.round(v * 10) / 10;
+
+const STEP_BUTTONS = [
+  { label: "−1 s", delta: -1 },
+  { label: "−0.1 s", delta: -0.1 },
+  { label: "+0.1 s", delta: 0.1 },
+  { label: "+1 s", delta: 1 },
+] as const;
+
+const kbd = "rounded border border-control-border bg-background px-1.5 text-xs leading-5 text-foreground";
+
+export function FramePicker({ open, onCancel, ...rest }: FramePickerProps) {
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
+      {/* Mounted only while open, so each opening starts fresh from `initialSec`. */}
+      {open && <PickerBody onCancel={onCancel} {...rest} />}
+    </Dialog>
+  );
+}
+
+type BodyProps = Omit<FramePickerProps, "open">;
+
+function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, onCancel }: BodyProps) {
+  const announce = useAnnounce();
+  // Radix only restores focus to a <DialogTrigger>. The "Pick frame" button lives in another
+  // component, so remember what had focus when we opened and give it back on close (D13).
+  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
+  const clamp = useCallback((v: number) => Math.min(durationSec, Math.max(0, v)), [durationSec]);
+  const [sec, setSec] = useState(() => roundTenth(clamp(initialSec)));
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const sliderWrapRef = useRef<HTMLDivElement | null>(null);
+  // The dialog content mounts after this component, so the wrapper's arrival must trigger a render.
+  const [, setSliderWrap] = useState<HTMLDivElement | null>(null);
+  const attachSliderWrap = useCallback((el: HTMLDivElement | null) => {
+    sliderWrapRef.current = el;
+    setSliderWrap(el);
+  }, []);
+  // Only one seek is in flight; while it runs the newest requested time waits here (latest wins).
+  const pendingSeek = useRef<number | null>(null);
+
+  const requestSeek = useCallback((t: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.seeking) {
+      pendingSeek.current = t;
+      return;
+    }
+    if (Math.abs(video.currentTime - t) > 0.001) video.currentTime = t;
+  }, []);
+
+  useEffect(() => {
+    requestSeek(sec);
+  }, [sec, requestSeek]);
+
+  const onSeeked = () => {
+    const next = pendingSeek.current;
+    if (next === null) return;
+    pendingSeek.current = null;
+    requestSeek(next);
+  };
+
+  // Radix puts role="slider" on the thumb but gives it no name; name it here (keeps "step N" in it).
+  const valueText = `${formatTimestamp(sec, 1)} of ${formatTimestamp(durationSec)}, original ${formatTimestamp(initialSec, 1)}`;
+  useEffect(() => {
+    const thumb = sliderWrapRef.current?.querySelector<HTMLElement>('[role="slider"]');
+    thumb?.setAttribute("aria-label", `Video position for step ${stepNumber}`);
+    thumb?.setAttribute("aria-valuetext", valueText);
+  });
+
+  const step = (delta: number) => setSec((s) => roundTenth(clamp(s + delta)));
+
+  const confirm = async () => {
+    const video = videoRef.current;
+    if (!video || busy) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      // Let the newest seek land before drawing, or the screenshot would show an older frame.
+      await waitForSeek(video, pendingSeek, SEEK_SETTLE_TIMEOUT_MS);
+      const shot = await captureFromVideo(video);
+      await onConfirm(sec, shot);
+    } catch (e) {
+      const err = toAppError(e);
+      if (err.kind !== "cancelled") {
+        setFailed(true);
+        announce("Couldn't capture this frame. Try a nearby moment.");
+      }
+    }
+    setBusy(false);
+  };
+
+  const onSliderKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    void confirm();
+  };
+
+  const fraction = durationSec > 0 ? Math.min(1, Math.max(0, initialSec / durationSec)) : 0;
+  const markerLeft = `calc(${THUMB_PX / 2}px + (100% - ${THUMB_PX}px) * ${fraction})`;
+
+  return (
+    <DialogContent
+      showCloseButton={false}
+      className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-[760px]"
+      onCloseAutoFocus={(e) => {
+        e.preventDefault();
+        if (opener?.isConnected) opener.focus();
+      }}
+      onOpenAutoFocus={(e) => {
+        e.preventDefault();
+        sliderWrapRef.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
+      }}
+    >
+      <DialogHeader className="px-6 pt-5 pb-4">
+        <DialogTitle className="text-xl leading-7 font-semibold tracking-tight">
+          Pick a frame for step {stepNumber}
+        </DialogTitle>
+      </DialogHeader>
+
+      <div className="flex flex-col gap-3 px-6">
+        <div className="aspect-[16/10] max-h-[50vh] w-[min(100%,80vh)] self-center overflow-hidden rounded-lg border border-control-border bg-muted">
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            muted
+            playsInline
+            preload="auto"
+            aria-label={`Video frame at ${formatTimestamp(sec, 1)} for step ${stepNumber}`}
+            className="block h-full w-full object-contain"
+            style={{ maxHeight: "50vh" }}
+            onLoadedMetadata={() => requestSeek(sec)}
+            onSeeked={onSeeked}
+          />
+        </div>
+
+        <div>
+          <div ref={attachSliderWrap} onKeyDown={onSliderKeyDown} className="relative h-11">
+            <Slider
+              min={0}
+              max={durationSec}
+              step={0.1}
+              value={[sec]}
+              onValueChange={([v]) => setSec(roundTenth(clamp(v)))}
+              disabled={busy}
+              className={
+                "h-11 " +
+                "[&_[data-slot=slider-track]]:h-1.5 [&_[data-slot=slider-track]]:bg-control-border " +
+                "[&_[data-slot=slider-thumb]]:size-[22px] [&_[data-slot=slider-thumb]]:border-[3px] [&_[data-slot=slider-thumb]]:border-primary"
+              }
+            />
+            <span
+              aria-hidden="true"
+              data-testid="original-marker"
+              className="pointer-events-none absolute top-2.5 h-6 w-0.5 -translate-x-1/2 bg-foreground"
+              style={{ left: markerLeft }}
+            />
+          </div>
+          <div aria-hidden="true" className="relative h-5">
+            <span
+              className="absolute top-0 -translate-x-1/2 rounded bg-foreground px-1.5 text-xs leading-[18px] font-semibold whitespace-nowrap text-background tabular-nums"
+              style={{ left: markerLeft }}
+            >
+              Original {formatTimestamp(initialSec, 1)}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {STEP_BUTTONS.slice(0, 2).map((b) => (
+            <StepButton key={b.label} {...b} stepNumber={stepNumber} disabled={busy} onStep={step} />
+          ))}
+          <p className="mx-3 min-w-[132px] text-center text-2xl leading-8 font-semibold tracking-tight tabular-nums">
+            {formatTimestamp(sec, 1)}{" "}
+            <span className="text-sm font-normal text-muted-foreground">/ {formatTimestamp(durationSec)}</span>
+          </p>
+          {STEP_BUTTONS.slice(2).map((b) => (
+            <StepButton key={b.label} {...b} stepNumber={stepNumber} disabled={busy} onStep={step} />
+          ))}
+        </div>
+
+        <DialogDescription className="flex flex-wrap items-center justify-center gap-1.5 text-[13px] leading-5 text-foreground/80">
+          <kbd className={kbd}>←</kbd>
+          <kbd className={kbd}>→</kbd>
+          <span>step</span>
+          <span aria-hidden="true">·</span>
+          <kbd className={kbd}>Shift</kbd>
+          <span>for 1 s</span>
+          <span aria-hidden="true">·</span>
+          <kbd className={kbd}>Enter</kbd>
+          <span>to use</span>
+          <span aria-hidden="true">·</span>
+          <kbd className={kbd}>Esc</kbd>
+          <span>to cancel</span>
+        </DialogDescription>
+
+        {failed && (
+          <p className="text-center text-sm text-destructive">
+            Couldn&apos;t capture this frame. Try a nearby moment, or cancel.
+          </p>
+        )}
+      </div>
+
+      <DialogFooter className="mx-0 mt-4 mb-0 rounded-b-xl border-t px-6 py-4 sm:justify-end">
+        <Button type="button" variant="outline" className="h-11 px-4 text-sm font-semibold" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          className="h-11 px-5 text-sm font-semibold"
+          onClick={() => void confirm()}
+          disabled={busy}
+          aria-label={`Use this frame for step ${stepNumber}`}
+        >
+          Use this frame
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function StepButton({
+  label,
+  delta,
+  stepNumber,
+  disabled,
+  onStep,
+}: {
+  label: string;
+  delta: number;
+  stepNumber: number;
+  disabled: boolean;
+  onStep: (delta: number) => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      disabled={disabled}
+      // Visible text stays a prefix of the name (WCAG 2.5.3).
+      aria-label={`${label} for step ${stepNumber}`}
+      className="h-11 min-w-[68px] border-control-border px-3 text-sm font-semibold tabular-nums"
+      onClick={() => onStep(delta)}
+    >
+      {label}
+    </Button>
+  );
+}
+
+/** Resolves once the video has no seek in flight (and no newer one queued). */
+function waitForSeek(video: HTMLVideoElement, pending: { current: number | null }, timeoutMs: number): Promise<void> {
+  if (!video.seeking && pending.current === null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      if (video.seeking || pending.current !== null) return;
+      clearTimeout(timer);
+      video.removeEventListener("seeked", done);
+      resolve();
+    };
+    // Give up waiting and capture whatever is shown; captureFromVideo has its own seek timeout.
+    const timer = setTimeout(() => {
+      video.removeEventListener("seeked", done);
+      resolve();
+    }, timeoutMs);
+    video.addEventListener("seeked", done);
+  });
 }
