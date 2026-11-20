@@ -5,7 +5,7 @@ How the build is split so several agents can work at the same time without stepp
 
 - **Phase 0, Foundation:** serial, main session. Installs everything and writes the **shared contracts**. Also **fully implements the small pure modules** several lanes depend on, so no lane is blocked by another lane's stub.
 - **Phase 1, Lanes:** seven agents in parallel, each in its **own git worktree**, each **owning a disjoint set of files**.
-- **Phase 2, Integration:** serial. Merge, end-to-end with real videos, fix.
+- **Phase 2, Integration:** serial. Each lane has already merged through its PR review loop. Run E2E and the live videos, then fix.
 - **Phase 3, Hardening:** review, a11y pass, docs.
 
 ```
@@ -411,7 +411,7 @@ jsdom + Testing Library + `user-event`. Each test file ends with `expect(await a
 
 ## Phase 2: Integration (serial, ≈45 min)
 
-1. Merge the lanes into `main` (order B, A, C, E, D, F, G) and run `pnpm check` **after each merge**. Ownership is disjoint, so conflicts only appear where a lane filled in its Phase 0 stub. Resolve those in favour of the lane.
+1. By now every lane PR has merged through the review loop (see "Shipping each lane"). Confirm `main` is green with `pnpm check` and `pnpm build`.
 2. Apply the contract change requests and the spike findings (update D4/D5).
 3. **`pnpm test:e2e`** (fake Gemini). Fix failures until it's green. A failing spec is either a real bug or a spec that guessed the UI wrong; fix whichever is wrong, citing UX.md.
 4. **Live run** with the example videos (`GEMINI_LIVE=1 pnpm test:e2e --grep @live`, then by hand): the happy path, `.mov`, the 3:33 and 5:26 videos (long-video notice, D16), a video over 3 minutes, cancel mid-stage, refresh mid-edit, re-pick, highlight, add step, delete + undo, Start new, export, then open the `.docx` in Word. Record timings for DEBRIEF.
@@ -419,25 +419,69 @@ jsdom + Testing Library + `user-event`. Each test file ends with `expect(await a
 
 ## Phase 3: Hardening (≈15 min, parallel)
 
-- **Review agent:** `/code-review` against the docs.
+- **Final review:** one reviewer agent runs `code-review` over the whole of `main` against the docs (each lane was already reviewed in its PR).
 - **A11y:** keyboard-only run of the demo script by hand (Playwright's `keyboard.spec.ts` and `a11y.spec.ts` cover the automated part). Record the gaps in UX.md.
 - **CI:** push, and confirm the GitHub Actions run is green.
 - **Docs:** DECISIONS statuses (Built / Revised), DEBRIEF numbers and "Actual", README final pass.
 
 ---
 
-## Spawning the lanes
+## Shipping each lane (build → PR → review loop → merge)
 
-One message, seven Agent calls, each with `isolation: "worktree"`. Brief template:
+Adapted from the `/ship` workflow, with **one reviewer per PR** instead of two, and the **main session merges** once the reviewer approves.
+
+```
+lane agent: build in worktree ──► gates pass ──► push branch ──► open PR (pr skill)
+                                                                      │
+main session: spawn 1 reviewer (code-review skill) ◄──────────────────┘
+                     │
+            findings ─┴─► round: each finding → fix | defer | answer
+                     │          lane agent pushes fixes as ONE commit
+                     │          reviewer re-reviews ONLY that commit
+                     ▼
+            reviewer: "approve" on the latest commit, no open findings
+                     │
+main session: rebase if needed → pnpm check → gh pr merge --squash → next
+```
+
+### 1. Build (lane agent)
+- Works in its own worktree on branch `lane/<letter>-<name>`, following the ground rules and its lane section.
+- **Done when** `pnpm check` passes on the committed work and the lane's testing-strategy rows are implemented.
+
+### 2. Open the PR (lane agent)
+- Push the branch and open a PR against `main` with `gh pr create`. Write the body with the `pr` skill: what the lane delivers, the decisions it implements, what's stubbed or cut, how to verify (tests, dev page, curl), and contract change requests.
+- **Done when** the PR exists. The lane agent reports the PR URL and **stays available** for fix rounds (the main session messages the same agent, so its context carries over).
+
+### 3. Review loop (main session orchestrates)
+- When a PR opens, the main session spawns **one reviewer agent** in the background, told to run the `code-review` skill on that PR. Its lens combines both of `/ship`'s:
+  - **Standards and spec:** the ground rules, file ownership, the Phase 0 contracts, and whether every item in the lane section and the decisions it cites is implemented.
+  - **Correctness:** behaviour under the diff, edge cases (especially the D10 errors and D13 a11y items the lane touches), and whether the tests actually exercise what they claim.
+- The reviewer brief names the PR, the branch, the lane section, and the decisions. It asks for findings as `file:line` plus a failure scenario, ending in an explicit **approve** or **not yet**. Reviewers skip `pnpm build` and E2E; the gates and CI cover those.
+- **A round:** every finding gets exactly one disposition:
+  - **fix** it;
+  - **defer** it to the open **Follow-ups** GitHub issue, as a comment that links the PR which found it;
+  - **answer** it, with the reason it stands.
+- The lane agent pushes all fixes as **one commit**. The main session then messages the **same reviewer** with that commit, what was fixed, deferred and answered, and asks it to review only that commit.
+- **Done when** the reviewer approves the latest commit with no open findings. **If round 3 still disagrees, stop and put the disagreement to the user.**
+
+### 4. Merge (main session)
+- Rebase the branch onto `main` if it's behind, then run `pnpm check` on the result.
+- Squash-merge with `gh pr merge --squash --delete-branch`. The squash message is the PR title plus the `Co-Authored-By` line.
+- After each merge, run `pnpm check` on `main`. If it fails, fix it on `main` immediately before merging the next PR.
+- PRs merge **in the order they're approved**. Ownership is disjoint, so order rarely matters. Lane G (E2E) merges last, because its specs only pass once the others are in.
+- Tell the user each PR link as it merges, with what the reviewer raised and what changed.
+
+### Spawning the lanes
+One message, seven Agent calls, each with `isolation: "worktree"`, run in the background. Brief template:
 
 > You are implementing **Lane X: <name>** of Process Recorder, in your own git worktree.
-> 1. Read `docs/IMPLEMENTATION.md`: the ground rules (all of them), the Phase 0 contracts, the HTTP behaviour, and your lane section. Then read decisions <D…> in `docs/DECISIONS.md`<, and `docs/UX.md` for UI lanes>.
-> 2. Set up your worktree (ground rule 1). Your port is <port>.
+> 1. Read `docs/IMPLEMENTATION.md`: the ground rules (all of them), the Phase 0 contracts, the HTTP behaviour, your lane section, the testing-strategy rows for your lane, and "Shipping each lane". Then read decisions <D…> in `docs/DECISIONS.md`<, and `docs/UX.md` for UI lanes>.
+> 2. Set up your worktree (ground rule 1). Your port is <port>. Create branch `lane/<x>-<name>`.
 > 3. Work through your lane's list in order. Edit only the files your lane owns. Mock or fake anything still stubbed.
 > 4. <UI lanes:> Match the design on the Claude Design canvas: <canvas link + artboard links>. Read it with your Artifact tool (`action: "read"`); never write to it.
-> 5. At about 50 minutes, or when done, commit and send the final report (ground rule 9).
+> 5. At about 50 minutes, or when done: make sure `pnpm check` passes, push, open the PR (step 2 of "Shipping each lane"), and reply with the PR URL plus your final report (ground rule 9). Then wait: you may receive review findings to fix. Push each round's fixes as ONE commit and reply with the commit hash and each finding's disposition (fixed / deferred / answered + reason). Never merge your own PR.
 
-**Suggested models:** A, D, E and F (judgement-heavy) on the strongest model. B, C and G on a faster one.
+**Suggested models:** A, D, E and F (judgement-heavy) on the strongest model. B, C and G on a faster one. Reviewers on the strongest model.
 
 ## Risk register
 
