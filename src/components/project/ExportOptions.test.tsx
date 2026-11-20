@@ -35,7 +35,7 @@ describe("ExportOptions", () => {
     const trigger = screen.getByRole("button", { name: "Export options" });
     const dialog = await open(user);
 
-    const header4 = within(dialog).getByRole("textbox", { name: "Header for column 4" });
+    const header4 = within(dialog).getByRole("textbox", { name: "Header for Expected result column" });
     expect(header4).toHaveValue("Expected result");
     await user.clear(header4);
     await user.type(header4, "Expected outcome");
@@ -55,7 +55,7 @@ describe("ExportOptions", () => {
     );
 
     await user.click(within(dialog).getByRole("button", { name: "Add blank column" }));
-    const blank = within(dialog).getByRole("textbox", { name: "Header for column 6" });
+    const blank = within(dialog).getByRole("textbox", { name: "Header for blank column 1" });
     expect(blank).toHaveFocus();
     await user.clear(blank);
     await user.type(blank, "Pass/Fail");
@@ -95,7 +95,7 @@ describe("ExportOptions", () => {
   it("saves, loads and deletes a preset; Default can't be deleted", async () => {
     const { user, onExport, baseElement } = setup();
     const dialog = await open(user);
-    const header2 = within(dialog).getByRole("textbox", { name: "Header for column 2" });
+    const header2 = within(dialog).getByRole("textbox", { name: "Header for Action column" });
     await user.clear(header2);
     await user.type(header2, "Step");
 
@@ -117,7 +117,7 @@ describe("ExportOptions", () => {
     await waitFor(() => expect(liveText()).toBe("Loaded preset 'Acme Corp'."));
     const violations = await axe(baseElement);
 
-    await user.click(within(dialog).getByRole("button", { name: "Delete preset 'Acme Corp'" }));
+    await user.click(within(dialog).getByRole("button", { name: "Delete preset Acme Corp" }));
     expect(loadPresets().map((p) => p.name)).toEqual(["Default"]);
     expect(within(dialog).queryByRole("option", { name: "Acme Corp" })).not.toBeInTheDocument();
 
@@ -135,8 +135,51 @@ describe("ExportOptions", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save preset" }));
     const input = within(dialog).getByRole("textbox", { name: "Save as preset…" });
     expect(input).toHaveAccessibleDescription("Enter a name for the preset.");
-    await user.type(input, "Default{Enter}");
+    await user.type(input, "   {Enter}");
+    expect(input).toHaveAccessibleDescription("Enter a name for the preset.");
+    await user.clear(input);
+    await user.type(input, "  dEfAuLt {Enter}");
     expect(input).toHaveAccessibleDescription(/built in/);
     expect(loadPresets()).toHaveLength(1);
+  });
+
+  it("marks a loaded preset as modified after edits; saving the same name (any case) updates it", async () => {
+    const { user } = setup();
+    const dialog = await open(user);
+    const nameInput = within(dialog).getByRole("textbox", { name: "Save as preset…" });
+    await user.type(nameInput, "Acme Corp{Enter}");
+    const select = within(dialog).getByRole("combobox", { name: "Preset" });
+    expect(within(select).getByRole("option", { selected: true })).toHaveTextContent(/^Acme Corp$/);
+
+    const header = within(dialog).getByRole("textbox", { name: "Header for Description column" });
+    await user.type(header, " (detail)");
+    expect(within(select).getByRole("option", { selected: true })).toHaveTextContent("Acme Corp (modified)");
+    expect(within(dialog).getByRole("button", { name: "Delete preset Acme Corp" })).not.toHaveAttribute("aria-disabled");
+
+    await user.type(nameInput, "ACME corp{Enter}");
+    await waitFor(() => expect(liveText()).toBe("Updated preset 'Acme Corp'."));
+    expect(loadPresets().map((p) => p.name)).toEqual(["Default", "Acme Corp"]);
+    expect(loadPresets()[1].template.columns[2].header).toBe("Description (detail)");
+    expect(within(select).getByRole("option", { selected: true })).toHaveTextContent(/^Acme Corp$/);
+  });
+
+  it("header input names are stable across moves; Remove focuses the next column (or previous if last)", async () => {
+    const { user } = setup();
+    const dialog = await open(user);
+    await user.click(within(dialog).getByRole("button", { name: "Add blank column" }));
+    await user.click(within(dialog).getByRole("button", { name: "Add blank column" }));
+    const blank1 = within(dialog).getByRole("textbox", { name: "Header for blank column 1" });
+    await user.clear(blank1);
+    await user.type(blank1, "Pass/Fail");
+    await user.click(within(dialog).getByRole("button", { name: "Move 'Pass/Fail' up" }));
+    expect(within(dialog).getByRole("textbox", { name: "Header for blank column 1" })).toHaveValue("Pass/Fail");
+
+    // Order: … Expected result, Pass/Fail, Screenshot, New column. Removing Pass/Fail focuses the next one.
+    await user.click(within(dialog).getByRole("button", { name: "Remove 'Pass/Fail'" }));
+    expect(within(dialog).getByRole("checkbox", { name: "Show 'Screenshot'" })).toHaveFocus();
+    // The last column: removing it focuses the previous one (Screenshot).
+    await user.click(within(dialog).getByRole("checkbox", { name: "Show 'Action'" }));
+    await user.click(within(dialog).getByRole("button", { name: "Remove 'New column'" }));
+    expect(within(dialog).getByRole("checkbox", { name: "Show 'Screenshot'" })).toHaveFocus();
   });
 });

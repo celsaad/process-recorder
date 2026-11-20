@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   addBlankColumn,
+  columnLabel,
+  findPreset,
   DEFAULT_PRESET_NAME,
   DEFAULT_TEMPLATE,
   defaultTemplate,
@@ -145,5 +147,58 @@ describe("preset storage", () => {
     expect(loadLastTemplate()).toEqual(DEFAULT_TEMPLATE);
     localStorage.setItem(LAST_TEMPLATE_KEY, JSON.stringify(toggleAllOff()));
     expect(loadLastTemplate()).toEqual(DEFAULT_TEMPLATE);
+  });
+});
+
+describe("preset robustness and names", () => {
+  beforeEach(() => localStorage.clear());
+  const stored = () => JSON.parse(localStorage.getItem(PRESETS_KEY) ?? "[]") as { name: string }[];
+
+  it("drops only the corrupt entry, and the next save keeps the good ones", () => {
+    const good = (name: string) => ({ name, template: DEFAULT_TEMPLATE });
+    localStorage.setItem(
+      PRESETS_KEY,
+      JSON.stringify([good("Acme"), { name: "Bad", template: { columns: [] } }, good("Globex")]),
+    );
+    expect(loadPresets().map((p) => p.name)).toEqual(["Default", "Acme", "Globex"]);
+    savePreset("Initech", DEFAULT_TEMPLATE);
+    expect(stored().map((p) => p.name)).toEqual(["Acme", "Globex", "Initech"]);
+  });
+
+  it("dedupes stored names case-insensitively (first wins) and ignores a stored 'default'", () => {
+    const t = renameColumn(DEFAULT_TEMPLATE, "action", "Step");
+    localStorage.setItem(
+      PRESETS_KEY,
+      JSON.stringify([
+        { name: "Acme", template: t },
+        { name: " ACME ", template: DEFAULT_TEMPLATE },
+        { name: "default", template: t },
+      ]),
+    );
+    expect(loadPresets().map((p) => p.name)).toEqual(["Default", "Acme"]);
+    expect(loadPresets()[1].template).toEqual(t);
+  });
+
+  it("saving an existing name in another case updates it in place; 'DEFAULT' is refused", () => {
+    savePreset("Acme Corp", DEFAULT_TEMPLATE);
+    const t = addBlankColumn(DEFAULT_TEMPLATE, "Pass/Fail", "pf");
+    savePreset("  acme corp ", t);
+    expect(stored()).toHaveLength(1);
+    expect(findPreset(loadPresets(), "ACME CORP")).toEqual({ name: "Acme Corp", template: t });
+    savePreset("DEFAULT", t);
+    expect(loadPresets()).toHaveLength(2);
+    expect(deletePreset("acme CORP").map((p) => p.name)).toEqual(["Default"]);
+  });
+
+  it("columnLabel is stable: built-in kind, or the blank column's creation number", () => {
+    let t = addBlankColumn(DEFAULT_TEMPLATE, "Pass/Fail");
+    t = addBlankColumn(t, "Tester");
+    const [first, second] = t.columns.slice(-2);
+    expect(columnLabel(first)).toBe("blank column 1");
+    expect(columnLabel(second)).toBe("blank column 2");
+    t = removeColumn(t, first.id);
+    t = addBlankColumn(moveColumn(t, second.id, -1), "Notes");
+    expect(t.columns.filter((c) => c.kind === "blank").map(columnLabel)).toEqual(["blank column 2", "blank column 3"]);
+    expect(columnLabel(DEFAULT_TEMPLATE.columns[2])).toBe("Description");
   });
 });

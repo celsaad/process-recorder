@@ -18,8 +18,11 @@ import { useAnnounce } from "@/components/shell/LiveRegion";
 import { buttonClass } from "@/components/shell/button-styles";
 import {
   addBlankColumn,
+  columnLabel,
   DEFAULT_PRESET_NAME,
   deletePreset,
+  findPreset,
+  isReservedName,
   loadLastTemplate,
   loadPresets,
   moveColumn,
@@ -50,7 +53,9 @@ const KIND_LABEL: Record<ColumnKind, string> = {
 const disabledLook = "aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
 
 /** The name a column goes by in accessible names and announcements. */
-const nameOf = (c: TemplateColumn) => c.header.trim() || KIND_LABEL[c.kind];
+const nameOf = (c: TemplateColumn) => c.header.trim() || columnLabel(c);
+/** Stable accessible name for a header input: it doesn't change on rename or move. */
+const headerInputName = (c: TemplateColumn) => (c.kind === "blank" ? columnLabel(c) : `${columnLabel(c)} column`);
 
 /**
  * "Export options" (Word export template) next to "Export to Word". The dialog picks, orders and
@@ -61,7 +66,9 @@ export function ExportOptions({ onExport }: ExportOptionsProps) {
   const announce = useAnnounce();
   const [template, setTemplate] = useState<ExportTemplate>(loadLastTemplate);
   const [presets, setPresets] = useState<Preset[]>(loadPresets);
+  /** The explicitly selected preset ("" = none), and its template as loaded/saved, to detect edits. */
   const [preset, setPreset] = useState("");
+  const [loadedJson, setLoadedJson] = useState<string | null>(null);
   const [presetName, setPresetName] = useState("");
   const [presetError, setPresetError] = useState<string | null>(null);
   const [lastVisibleId, setLastVisibleId] = useState<string | null>(null);
@@ -124,32 +131,39 @@ export function ExportOptions({ onExport }: ExportOptionsProps) {
       announce("At least one column must stay visible.");
       return;
     }
+    const at = template.columns.findIndex((c) => c.id === col.id);
+    const neighbour = next.columns[at] ?? next.columns[at - 1];
     update(next);
     announce(`Removed '${nameOf(col)}'.`);
-    setFocusTarget("add");
+    // Focus the next column's first control (the previous one's if it was last), per UX.md.
+    setFocusTarget(neighbour ? `${neighbour.id}:show` : "add");
   };
 
   const pickPreset = (name: string) => {
     setPreset(name);
-    const found = presets.find((p) => p.name === name);
-    if (!found) return;
+    const found = findPreset(presets, name);
+    if (!found) return setLoadedJson(null);
     update(found.template);
-    announce(`Loaded preset '${name}'.`);
+    setLoadedJson(JSON.stringify(found.template));
+    announce(`Loaded preset '${found.name}'.`);
   };
 
   const save = (e: FormEvent) => {
     e.preventDefault();
     const name = presetName.trim();
     if (!name) return setPresetError("Enter a name for the preset.");
-    if (name === DEFAULT_PRESET_NAME) return setPresetError(`"${DEFAULT_PRESET_NAME}" is built in. Choose another name.`);
+    if (isReservedName(name)) return setPresetError(`"${DEFAULT_PRESET_NAME}" is built in. Choose another name.`);
+    const existing = findPreset(presets, name);
     setPresets(savePreset(name, template));
-    setPreset(name);
+    setPreset(existing?.name ?? name);
+    setLoadedJson(JSON.stringify(template));
     setPresetName("");
     setPresetError(null);
-    announce(`Saved preset '${name}'.`);
+    announce(existing ? `Updated preset '${existing.name}'.` : `Saved preset '${name}'.`);
   };
 
-  const canDelete = preset !== "" && preset !== DEFAULT_PRESET_NAME;
+  const modified = preset !== "" && loadedJson !== null && JSON.stringify(template) !== loadedJson;
+  const canDelete = preset !== "" && !isReservedName(preset) && findPreset(presets, preset) !== undefined;
   const removePreset = () => {
     if (!canDelete) return;
     setPresets(deletePreset(preset));
@@ -193,6 +207,7 @@ export function ExportOptions({ onExport }: ExportOptionsProps) {
                     <div className="flex items-center gap-2 self-center">
                       <input
                         id={checkId}
+                        data-focus-key={`${col.id}:show`}
                         type="checkbox"
                         className="size-4"
                         checked={col.visible}
@@ -205,7 +220,7 @@ export function ExportOptions({ onExport }: ExportOptionsProps) {
                     </div>
                     <div className="flex min-w-40 flex-1 flex-col gap-1">
                       <Label htmlFor={inputId}>
-                        Header <span className="sr-only">for column {i + 1}</span>
+                        Header <span className="sr-only">for {headerInputName(col)}</span>
                       </Label>
                       <input
                         id={inputId}
@@ -288,7 +303,7 @@ export function ExportOptions({ onExport }: ExportOptionsProps) {
                   <option value="">Choose a preset…</option>
                   {presets.map((p) => (
                     <option key={p.name} value={p.name}>
-                      {p.name}
+                      {modified && p.name === preset ? `${p.name} (modified)` : p.name}
                     </option>
                   ))}
                 </select>
@@ -300,7 +315,8 @@ export function ExportOptions({ onExport }: ExportOptionsProps) {
                 aria-disabled={!canDelete || undefined}
                 onClick={removePreset}
               >
-                Delete preset{canDelete && " "}{canDelete && <span className="sr-only">&apos;{preset}&apos;</span>}
+                Delete preset{canDelete && " "}
+                {canDelete && <span className="sr-only">{preset}</span>}
               </Button>
             </div>
             <form onSubmit={save} className="flex flex-wrap items-end gap-2">

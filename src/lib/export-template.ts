@@ -66,11 +66,30 @@ export function removeColumn(t: ExportTemplate, id: string): ExportTemplate {
   return { columns: t.columns.filter((c) => c.id !== id) };
 }
 
+const BLANK_ID = /^blank-(\d+)$/;
+
+/** "blank-N", numbered at creation (max existing N + 1) and never renumbered. */
 function newId(t: ExportTemplate): string {
-  let n = t.columns.length + 1;
+  const used = t.columns.map((c) => Number(BLANK_ID.exec(c.id)?.[1] ?? 0));
+  let n = Math.max(0, ...used) + 1;
   while (t.columns.some((c) => c.id === `blank-${n}`)) n++;
   return `blank-${n}`;
 }
+
+/** Stable name for a column, independent of its header and position: "Description", "blank column 2". */
+export function columnLabel(c: TemplateColumn): string {
+  if (c.kind !== "blank") return BUILT_IN_LABEL[c.kind];
+  const n = BLANK_ID.exec(c.id)?.[1];
+  return n ? `blank column ${n}` : `blank column ${c.id}`;
+}
+
+const BUILT_IN_LABEL: Record<Exclude<ColumnKind, "blank">, string> = {
+  number: "Step number",
+  action: "Action",
+  description: "Description",
+  expectedResult: "Expected result",
+  screenshot: "Screenshot",
+};
 
 // ---------- Validation ----------
 
@@ -90,7 +109,7 @@ const templateSchema = z
     "each built-in column at most once",
   );
 
-const presetsSchema = z.array(z.object({ name: z.string().min(1).max(100), template: templateSchema })).max(100);
+const presetSchema = z.object({ name: z.string().trim().min(1).max(100), template: templateSchema });
 
 export function parseTemplate(value: unknown): ExportTemplate | null {
   const r = templateSchema.safeParse(value);
@@ -127,32 +146,56 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
-/** Saved presets, with the built-in "Default" first. Corrupt storage yields just the default. */
-export function loadPresets(): Preset[] {
-  const parsed = presetsSchema.safeParse(readJson(PRESETS_KEY));
-  const saved = parsed.success ? parsed.data.filter((p) => p.name !== DEFAULT_PRESET_NAME) : [];
-  return [{ name: DEFAULT_PRESET_NAME, template: defaultTemplate() }, ...saved];
+/** Preset names compare trimmed and case-insensitively. */
+const nameKey = (name: string) => name.trim().toLocaleLowerCase();
+export const sameName = (a: string, b: string) => nameKey(a) === nameKey(b);
+export const isReservedName = (name: string) => sameName(name, DEFAULT_PRESET_NAME);
+
+/** The preset with this name (trimmed, any case), if any. */
+export function findPreset(presets: Preset[], name: string): Preset | undefined {
+  return presets.find((p) => sameName(p.name, name));
 }
 
+/** Saved presets only. Each entry is validated on its own: a bad one is dropped, the rest survive.
+ *  Duplicate names (any case) and "Default" keep only the first valid entry / none. */
 function savedOnly(): Preset[] {
-  return loadPresets().filter((p) => p.name !== DEFAULT_PRESET_NAME);
+  const raw = readJson(PRESETS_KEY);
+  if (!Array.isArray(raw)) return [];
+  const out: Preset[] = [];
+  for (const entry of raw.slice(0, 100)) {
+    const r = presetSchema.safeParse(entry);
+    if (!r.success || isReservedName(r.data.name) || findPreset(out, r.data.name)) continue;
+    out.push(r.data);
+  }
+  return out;
 }
 
-/** Saves (or overwrites) a preset by name. "Default" and empty names are refused. Returns the new list. */
+/** Saved presets, with the built-in "Default" first. */
+export function loadPresets(): Preset[] {
+  return [{ name: DEFAULT_PRESET_NAME, template: defaultTemplate() }, ...savedOnly()];
+}
+
+/**
+ * Saves a preset. An existing name (any case) is updated in place, keeping its stored name.
+ * "Default" (any case), empty names and invalid templates are refused. Returns the new list.
+ */
 export function savePreset(name: string, template: ExportTemplate): Preset[] {
   const trimmed = name.trim();
-  if (!trimmed || trimmed === DEFAULT_PRESET_NAME || !parseTemplate(template)) return loadPresets();
-  const rest = savedOnly().filter((p) => p.name !== trimmed);
-  writeJson(PRESETS_KEY, [...rest, { name: trimmed, template }]);
+  if (!trimmed || isReservedName(trimmed) || !parseTemplate(template)) return loadPresets();
+  const saved = savedOnly();
+  const i = saved.findIndex((p) => sameName(p.name, trimmed));
+  if (i >= 0) saved[i] = { name: saved[i].name, template };
+  else saved.push({ name: trimmed, template });
+  writeJson(PRESETS_KEY, saved);
   return loadPresets();
 }
 
-/** Deletes a saved preset. "Default" can't be deleted. Returns the new list. */
+/** Deletes a saved preset (name in any case). "Default" can't be deleted. Returns the new list. */
 export function deletePreset(name: string): Preset[] {
-  if (name === DEFAULT_PRESET_NAME) return loadPresets();
+  if (isReservedName(name)) return loadPresets();
   writeJson(
     PRESETS_KEY,
-    savedOnly().filter((p) => p.name !== name),
+    savedOnly().filter((p) => !sameName(p.name, name)),
   );
   return loadPresets();
 }

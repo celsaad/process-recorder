@@ -103,6 +103,11 @@ describe("buildDocx with a template", () => {
     expect(gridWidths(xml).reduce((a, b) => a + b, 0)).toBe(CONTENT_TWIPS);
   });
 
+  it("throws on a template with no visible columns (the UI and storage never produce one)", async () => {
+    const none = { columns: DEFAULT_TEMPLATE.columns.map((c) => ({ ...c, visible: false })) };
+    await expect(buildDocx(fixtureProject, fixtureSteps, shot(), none)).rejects.toThrow(/no visible columns/);
+  });
+
   it("uses renamed headers", async () => {
     const t = renameColumn(DEFAULT_TEMPLATE, "expectedResult", "Expected outcome");
     const xml = await documentXml(await buildDocx(fixtureProject, fixtureSteps, shot(), t));

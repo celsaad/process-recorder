@@ -24,7 +24,7 @@ import type { Project, Step } from "./types";
 export type GetShot = (stepId: string) => Promise<Blob | null>;
 
 /** Default headers, in default order (DEFAULT_TEMPLATE). */
-export const HEADERS = ["#", "Action", "Description", "Expected result", "Screenshot"] as const;
+export const HEADERS: readonly string[] = DEFAULT_TEMPLATE.columns.map((c) => c.header);
 export const NO_SHOT_TEXT = "No screenshot";
 const FALLBACK_NAME = "test-script";
 
@@ -170,8 +170,8 @@ export async function buildDocx(
   getShot: GetShot,
   template: ExportTemplate = DEFAULT_TEMPLATE,
 ): Promise<Blob> {
-  const visible = visibleColumns(template);
-  const columns = visible.length > 0 ? visible : visibleColumns(DEFAULT_TEMPLATE);
+  const columns = visibleColumns(template);
+  if (columns.length === 0) throw new Error("Export template has no visible columns");
   const widths = columnWidths(columns);
   const wantShots = columns.some((c) => c.kind === "screenshot");
   const images: (ExportImage | null)[] = [];

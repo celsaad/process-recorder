@@ -11,7 +11,7 @@ test("export options: add a blank Pass/Fail column, then export", async ({ page 
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Export options" });
   await dialog.getByRole("button", { name: "Add blank column" }).click();
-  const header = dialog.getByRole("textbox", { name: "Header for column 6" });
+  const header = dialog.getByRole("textbox", { name: "Header for blank column 1" });
   await expect(header).toBeFocused();
   await header.fill("Pass/Fail");
   await expect(dialog.getByRole("button", { name: "Remove 'Pass/Fail'" })).toBeVisible();
