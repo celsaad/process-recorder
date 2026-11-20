@@ -1,5 +1,5 @@
 // Synthetic fixtures built with ffmpeg (no interviewer material). Run `pnpm e2e:fixture` first for
-// tiny.webm, then `pnpm e2e:fixtures:synthetic`. Outputs are committed (about 1 MB in total).
+// tiny.webm, then `pnpm e2e:fixtures:synthetic`. Outputs are committed (under 1 MB in total).
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -32,9 +32,9 @@ function pattern(name: string, seconds: number): void {
 pattern("long-5min.mp4", 300);
 pattern("too-long-10m30.mp4", 630);
 
-// corrupt.mp4: the first 4 KB of tiny.mp4, then random bytes.
-const head = Buffer.alloc(4096);
+// corrupt.mp4: the first 48 bytes of tiny.mp4 (ftyp + the start of mvhd, so even the metadata fails), then random bytes.
+const head = Buffer.alloc(48);
 const fd = openSync(out("tiny.mp4"), "r");
-readSync(fd, head, 0, 4096, 0);
+readSync(fd, head, 0, 48, 0);
 closeSync(fd);
 writeFileSync(out("corrupt.mp4"), Buffer.concat([head, randomBytes(60 * 1024)]));

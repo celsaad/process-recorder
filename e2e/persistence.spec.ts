@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { uploadSample, useScenario, waitForReady } from "./helpers";
+import { expectProjectStored, uploadSample, useScenario, waitForReady } from "./helpers";
 
 test("edits and screenshots survive a reload; Start new clears them", async ({ page }) => {
   const dropzone = page.getByRole("button", {
@@ -13,11 +13,10 @@ test("edits and screenshots survive a reload; Start new clears them", async ({ p
     timeout: 30_000,
   });
 
-  // Edits are debounced (500 ms): wait for Saving, then Saved, so the reload can't race the write.
+  // Edits are debounced (500 ms) and "Saving" lasts milliseconds: poll IndexedDB instead.
   const edited = "Persisted edit from the E2E test";
   await page.getByLabel("Action").first().fill(edited);
-  await expect(page.getByText(/saving/i)).toBeVisible();
-  await expect(page.getByText(/^saved$/i)).toBeVisible();
+  await expectProjectStored(page, edited);
 
   await page.reload();
   await expect(page.getByRole("status")).toContainText(/restored your last project/i);

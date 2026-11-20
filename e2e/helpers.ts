@@ -51,11 +51,34 @@ export async function tabTo(page: Page, target: Locator, max = 40): Promise<numb
     await page.keyboard.press("Tab");
     const focused = await target
       .first()
-      .evaluate((el) => el === document.activeElement)
+      .evaluate((el) => el === document.activeElement, undefined, { timeout: 1000 })
       .catch(() => false);
     if (focused) return i;
   }
   throw new Error(`Tab did not reach ${target} within ${max} presses`);
+}
+
+/**
+ * Polls IndexedDB (idb-keyval defaults: DB "keyval-store", store "keyval", key "project") until the
+ * stored project JSON contains `text`. Use before a reload so it can't race the 500 ms save debounce.
+ */
+export async function expectProjectStored(page: Page, text: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            new Promise<string>((resolve) => {
+              const open = indexedDB.open("keyval-store");
+              open.onsuccess = () => {
+                const get = open.result.transaction("keyval").objectStore("keyval").get("project");
+                get.onsuccess = () => resolve(JSON.stringify(get.result ?? null));
+              };
+            }),
+        ),
+      { timeout: 5000 },
+    )
+    .toContain(text);
 }
 
 /** WCAG 2.2 AA scan of the whole page. */

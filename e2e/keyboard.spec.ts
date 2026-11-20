@@ -11,8 +11,7 @@ test("whole flow with the keyboard only", async ({ page }) => {
   const dropzone = page.getByRole("button", {
     name: /drop a screen recording or choose a file/i,
   });
-  const presses = await tabTo(page, dropzone, 6);
-  expect(presses).toBeLessThanOrEqual(6);
+  await tabTo(page, dropzone, 6);
   const chooserPromise = page.waitForEvent("filechooser");
   await page.keyboard.press("Enter");
   const chooser = await chooserPromise;
