@@ -11,7 +11,7 @@ import {
 import { ZodError } from "zod";
 import { AppError, toAppError } from "@/lib/errors";
 import { GeminiResponseSchema, type GeminiResponse } from "@/lib/schema";
-import type { UploadStage } from "@/lib/types";
+import type { ErrorKind, UploadStage } from "@/lib/types";
 import {
   fakeDeleteFile,
   fakeGenerateSteps,
@@ -184,16 +184,40 @@ export async function deleteFile(fileName: string): Promise<void> {
   await getClient().files.delete({ name: fileName });
 }
 
+/**
+ * Stops that mean Gemini declined the content (D10 `gemini_blocked`: retrying won't help).
+ * "EMPTY" is our marker for a response with no text. Every other non-STOP reason (OTHER,
+ * MALFORMED_RESPONSE, one added in a later SDK…) is `gemini_failed`, which is retryable.
+ */
+const BLOCKED_REASONS: ReadonlySet<string> = new Set([
+  FinishReason.SAFETY,
+  FinishReason.BLOCKLIST,
+  FinishReason.PROHIBITED_CONTENT,
+  FinishReason.SPII,
+  FinishReason.RECITATION,
+  FinishReason.IMAGE_SAFETY,
+  FinishReason.IMAGE_PROHIBITED_CONTENT,
+  FinishReason.IMAGE_RECITATION,
+  FinishReason.MODEL_ARMOR,
+  // Not content filters, but retrying can't succeed: escalation-filtered content,
+  // a PUP-limited account, an unsupported language.
+  FinishReason.ESCALATION,
+  FinishReason.PUP_LIMITED_DISABLED,
+  FinishReason.LANGUAGE,
+  "EMPTY",
+]);
+
+function finishReasonKind(reason: string): ErrorKind {
+  if (reason === FinishReason.MAX_TOKENS) return "bad_model_output";
+  return BLOCKED_REASONS.has(reason) ? "gemini_blocked" : "gemini_failed";
+}
+
 const EXPIRED_MESSAGE = /may not exist|not found/i;
 
 export function classifyGeminiError(e: unknown): AppError {
   if (e instanceof AppError) return e;
   if (e instanceof FinishReasonError) {
-    return new AppError(
-      e.finishReason === FinishReason.MAX_TOKENS ? "bad_model_output" : "gemini_blocked",
-      undefined,
-      { cause: e },
-    );
+    return new AppError(finishReasonKind(e.finishReason), undefined, { cause: e });
   }
   if (e instanceof SyntaxError || e instanceof ZodError) {
     return new AppError("bad_model_output", undefined, { cause: e });

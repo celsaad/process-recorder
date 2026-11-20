@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { useAnnounce } from "@/components/shell/LiveRegion";
-import { toAppError } from "@/lib/errors";
+import { AppError, toAppError } from "@/lib/errors";
 import { captureFromVideo, waitForFrameData } from "@/lib/frames";
 import { formatTimestamp } from "@/lib/timestamp";
 import { stepHeadingDomId, type FramePickerProps } from "@/lib/ui-contracts";
@@ -21,6 +21,9 @@ import { stepHeadingDomId, type FramePickerProps } from "@/lib/ui-contracts";
 const THUMB_PX = 22;
 const SEEK_SETTLE_TIMEOUT_MS = 3000;
 const LOAD_TIMEOUT_MS = 8000;
+/** Caps the whole confirm (load + settle + capture). Esc is blocked while busy, so a stuck
+ *  capture must not hold the dialog for the sum of the inner timeouts (~16 s). */
+const CONFIRM_TIMEOUT_MS = 6000;
 
 const roundTenth = (v: number) => Math.round(v * 10) / 10;
 
@@ -44,7 +47,7 @@ export function FramePicker({ open, onCancel, ...rest }: FramePickerProps) {
 
 type BodyProps = Omit<FramePickerProps, "open">;
 
-function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, onCancel }: BodyProps) {
+function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, stepAction, onConfirm, onCancel }: BodyProps) {
   const announce = useAnnounce();
   // Radix only restores focus to a <DialogTrigger>. The "Pick frame" button lives in another
   // component, so remember what had focus when we opened and give it back on close (D13).
@@ -57,19 +60,17 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
   const videoRef = useRef<HTMLVideoElement>(null);
   // False once the dialog is gone: a capture still in flight must never commit after that.
   const alive = useRef(true);
+  // The confirm in flight, if any. Aborted when its time cap fires or the dialog goes away
+  // (Cancel/Esc unmount the body), so a late `grab()` never seeks or keeps polling.
+  const confirming = useRef<AbortController | null>(null);
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
+      confirming.current?.abort();
     };
   }, []);
   const sliderWrapRef = useRef<HTMLDivElement | null>(null);
-  // The dialog content mounts after this component, so the wrapper's arrival must trigger a render.
-  const [, setSliderWrap] = useState<HTMLDivElement | null>(null);
-  const attachSliderWrap = useCallback((el: HTMLDivElement | null) => {
-    sliderWrapRef.current = el;
-    setSliderWrap(el);
-  }, []);
   // Only one seek is in flight; while it runs the newest requested time waits here (latest wins).
   const pendingSeek = useRef<number | null>(null);
 
@@ -94,13 +95,11 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
     requestSeek(next);
   };
 
-  // Radix puts role="slider" on the thumb but gives it no name; name it here (keeps "step N" in it).
-  const valueText = `${formatTimestamp(sec, 1)} of ${formatTimestamp(durationSec)}, original ${formatTimestamp(initialSec, 1)}`;
-  useEffect(() => {
-    const thumb = sliderWrapRef.current?.querySelector<HTMLElement>('[role="slider"]');
-    thumb?.setAttribute("aria-label", `Video position for step ${stepNumber}`);
-    thumb?.setAttribute("aria-valuetext", valueText);
-  });
+  // Radix puts role="slider" on the thumb but gives it no name; name it (keeps "step N" in it).
+  const thumbProps = {
+    "aria-label": `Video position for step ${stepNumber}`,
+    "aria-valuetext": `${formatTimestamp(sec, 1)} of ${formatTimestamp(durationSec)}, original ${formatTimestamp(initialSec, 1)}`,
+  };
 
   const step = (delta: number) => setSec((s) => roundTenth(clamp(s + delta)));
 
@@ -109,25 +108,50 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
     if (!video || busy) return;
     setBusy(true);
     setFailed(false);
-    try {
+    const ctrl = new AbortController();
+    confirming.current = ctrl;
+    const { signal } = ctrl;
+    const check = () => {
+      if (signal.aborted) throw new AppError("cancelled");
+    };
+    const grab = async () => {
       // Let the newest seek land before drawing, or the screenshot would show an older frame.
-      await waitForLoaded(video, LOAD_TIMEOUT_MS);
+      await waitForFrameData(video, LOAD_TIMEOUT_MS, { signal });
+      check();
       // The slider's seek runs in an effect after render, so an Enter pressed right
       // after an arrow key can arrive before that seek starts. Request it here too
       // (idempotent) so the wait below always covers the time being confirmed.
       requestSeek(sec);
-      await waitForSeek(video, pendingSeek, SEEK_SETTLE_TIMEOUT_MS);
-      const shot = await captureFromVideo(video);
+      await waitForSeek(video, pendingSeek, SEEK_SETTLE_TIMEOUT_MS, signal);
+      check();
+      return captureFromVideo(video, { signal });
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        // Reject first so the race reports the failure, not the abort's `cancelled`. Then stop
+        // the late grab: it must not seek back to `sec` after the user has moved on.
+        reject(new AppError("capture_failed"));
+        ctrl.abort();
+      }, CONFIRM_TIMEOUT_MS);
+    });
+    try {
+      const shot = await Promise.race([grab(), deadline]);
+      clearTimeout(timer);
       if (!alive.current) return;
       await onConfirm(sec, shot);
     } catch (e) {
+      clearTimeout(timer);
+      if (!alive.current) return;
       const err = toAppError(e);
       if (err.kind !== "cancelled") {
         setFailed(true);
         announce("Couldn't capture this frame. Try a nearby moment.");
       }
+    } finally {
+      if (confirming.current === ctrl) confirming.current = null;
     }
-    setBusy(false);
+    if (alive.current) setBusy(false);
   };
 
   const onSliderKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -149,7 +173,7 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
         // The opener can be gone (e.g. a failed-capture placeholder becomes an image): use the step heading.
         else document.getElementById(stepHeadingDomId(stepNumber))?.focus();
       }}
-      // An in-flight capture can't be cancelled; ignore dismissals until it settles.
+      // An in-flight capture can't be cancelled; ignore dismissals until it settles (at most CONFIRM_TIMEOUT_MS).
       onEscapeKeyDown={(e) => busy && e.preventDefault()}
       onInteractOutside={(e) => busy && e.preventDefault()}
       onOpenAutoFocus={(e) => {
@@ -157,10 +181,11 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
         sliderWrapRef.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
       }}
     >
-      <DialogHeader className="px-6 pt-5 pb-4">
+      <DialogHeader className="gap-0.5 px-6 pt-5 pb-4">
         <DialogTitle className="text-xl leading-7 font-semibold tracking-tight">
           Pick a frame for step {stepNumber}
         </DialogTitle>
+        {stepAction && <p className="text-[13px] leading-[18px] text-foreground/80">{stepAction}</p>}
       </DialogHeader>
 
       <div className="flex flex-col gap-3 px-6">
@@ -180,7 +205,7 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
         </div>
 
         <div>
-          <div ref={attachSliderWrap} onKeyDown={onSliderKeyDown} className="relative h-11">
+          <div ref={sliderWrapRef} onKeyDown={onSliderKeyDown} className="relative h-11">
             <Slider
               min={0}
               max={durationSec}
@@ -188,6 +213,7 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, onConfirm, 
               value={[sec]}
               onValueChange={([v]) => setSec(roundTenth(clamp(v)))}
               disabled={busy}
+              thumbProps={thumbProps}
               className={
                 "h-11 " +
                 "[&_[data-slot=slider-track]]:h-1.5 [&_[data-slot=slider-track]]:bg-control-border " +
@@ -292,28 +318,27 @@ function StepButton({
   );
 }
 
-/** Resolves once the video has no seek in flight (and no newer one queued). */
-function waitForSeek(video: HTMLVideoElement, pending: { current: number | null }, timeoutMs: number): Promise<void> {
-  if (!video.seeking && pending.current === null) return Promise.resolve();
+/** Resolves once the video has no seek in flight (and no newer one queued), or when `signal` aborts. */
+function waitForSeek(
+  video: HTMLVideoElement,
+  pending: { current: number | null },
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted || (!video.seeking && pending.current === null)) return Promise.resolve();
   return new Promise((resolve) => {
-    const done = () => {
-      if (video.seeking || pending.current !== null) return;
+    const finish = () => {
       clearTimeout(timer);
       video.removeEventListener("seeked", done);
+      signal.removeEventListener("abort", finish);
       resolve();
     };
+    const done = () => {
+      if (!video.seeking && pending.current === null) finish();
+    };
     // Give up waiting and capture whatever is shown; captureFromVideo has its own seek timeout.
-    const timer = setTimeout(() => {
-      video.removeEventListener("seeked", done);
-      resolve();
-    }, timeoutMs);
+    const timer = setTimeout(finish, timeoutMs);
     video.addEventListener("seeked", done);
+    signal.addEventListener("abort", finish);
   });
-}
-
-/** Resolves once the current frame is decoded (readyState >= 2), so an early Enter doesn't fail the capture.
- *  Polls the condition rather than waiting for `loadeddata`, which fires only once per load and never
- *  again after a seek, so an Enter pressed mid-seek would otherwise wait out the whole timeout. */
-function waitForLoaded(video: HTMLVideoElement, timeoutMs: number): Promise<void> {
-  return waitForFrameData(video, timeoutMs);
 }

@@ -55,10 +55,28 @@ describe("classifyGeminiError", () => {
     expect(kind(e)).toBe("file_expired");
   });
 
-  it("maps finishReason", () => {
-    expect(kind(new FinishReasonError("MAX_TOKENS"))).toBe("bad_model_output");
-    expect(kind(new FinishReasonError("SAFETY"))).toBe("gemini_blocked");
-    expect(kind(new FinishReasonError("EMPTY"))).toBe("gemini_blocked");
+  it.each([
+    ["MAX_TOKENS", "bad_model_output"],
+    ["SAFETY", "gemini_blocked"],
+    ["BLOCKLIST", "gemini_blocked"],
+    ["PROHIBITED_CONTENT", "gemini_blocked"],
+    ["SPII", "gemini_blocked"],
+    ["RECITATION", "gemini_blocked"],
+    ["IMAGE_SAFETY", "gemini_blocked"],
+    ["IMAGE_PROHIBITED_CONTENT", "gemini_blocked"],
+    ["IMAGE_RECITATION", "gemini_blocked"],
+    ["MODEL_ARMOR", "gemini_blocked"],
+    ["ESCALATION", "gemini_blocked"],
+    ["PUP_LIMITED_DISABLED", "gemini_blocked"],
+    ["LANGUAGE", "gemini_blocked"],
+    ["EMPTY", "gemini_blocked"],
+    // Not a refusal: retryable.
+    ["OTHER", "gemini_failed"],
+    ["FINISH_REASON_UNSPECIFIED", "gemini_failed"],
+    ["MALFORMED_RESPONSE", "gemini_failed"],
+    ["SOME_FUTURE_REASON", "gemini_failed"],
+  ])("maps finishReason %s to %s", (reason, expected) => {
+    expect(kind(new FinishReasonError(reason))).toBe(expected);
   });
 
   it("maps invalid JSON and schema failures to bad_model_output", () => {
@@ -136,6 +154,13 @@ describe("generateSteps", () => {
     expect(sdk.generateContent).toHaveBeenCalledTimes(2);
   });
 
+  it("gives a retryable gemini_failed, without an output retry, for finishReason OTHER", async () => {
+    sdk.filesGet.mockResolvedValue(ACTIVE);
+    sdk.generateContent.mockResolvedValue(ok("", "OTHER"));
+    await expect(generateSteps("files/abc")).rejects.toMatchObject({ kind: "gemini_failed" });
+    expect(sdk.generateContent).toHaveBeenCalledTimes(1);
+  });
+
   it("does not retry SAFETY or an empty response (gemini_blocked)", async () => {
     sdk.filesGet.mockResolvedValue(ACTIVE);
     sdk.generateContent.mockResolvedValueOnce(ok("", "SAFETY"));
@@ -206,9 +231,11 @@ describe("geminiFor", () => {
   it("uses the fake (no key needed) when GEMINI_FAKE=1", async () => {
     vi.stubEnv("GEMINI_API_KEY", "");
     vi.stubEnv("GEMINI_FAKE", "1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {}); // the once-per-process fake-mode warning
     const req = new Request("http://x/", { headers: { cookie: "fake-scenario=no_steps" } });
     const res = await geminiFor(req).generateSteps("files/abc");
     expect(res.steps).toEqual([]);
     expect(sdk.generateContent).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

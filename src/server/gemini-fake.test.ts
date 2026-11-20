@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { normalizeSteps } from "@/lib/normalize";
 import {
   FAKE_RESPONSE,
@@ -63,5 +63,29 @@ describe("fake backend", () => {
     controller.abort();
     await assertion;
     vi.useRealTimers();
+  });
+});
+
+describe("isFakeMode", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("warns once per process when fake mode is first used, whatever NODE_ENV is", async () => {
+    vi.resetModules(); // a fresh module, so the once-per-process flag starts unset
+    const { isFakeMode } = await import("./gemini-fake");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("NODE_ENV", "production");
+
+    vi.stubEnv("GEMINI_FAKE", "");
+    expect(isFakeMode()).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+
+    vi.stubEnv("GEMINI_FAKE", "1");
+    expect(isFakeMode()).toBe(true);
+    expect(isFakeMode()).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/GEMINI_FAKE=1/);
   });
 });

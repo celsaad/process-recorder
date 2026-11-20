@@ -214,6 +214,7 @@ export type Recorder = {
   startNew: () => void;                 // opens the confirm; confirmStartNew() does the work
   confirmStartNew: () => Promise<void>;
   pendingConfirm: "start_new" | "replace" | null;
+  pendingFileName: string | null;       // the file awaiting the replace confirm (added in follow-ups #11)
   resolveConfirm: (ok: boolean) => void;
   setTitle: (t: string) => void;
   repick: (stepId: string, sec: number, shot: Blob) => Promise<void>;
@@ -293,10 +294,10 @@ Each lane: one agent, `isolation: "worktree"`. The list order within each lane i
 **Owns:** `src/app/globals.css` (token values only), `src/app/error.tsx`, `src/components/shell/**` (except `LiveRegion.tsx`), `src/components/upload/**`, `src/components/feedback/**`, `src/components/project/**`, `src/app/dev/states/page.tsx`
 
 1. **Token values** from the design canvas, in `globals.css`.
-2. `shell/AppHeader` `{ saveStatus; onStartNew?; children? }` (children = title + export slot). **Sticky** in the editor, so Export and the save status stay visible with 20+ steps.
+2. `shell/AppHeader` `{ saveStatus; onStartNew?; title?; actions? }` (explicit slots; were positional children until follow-ups #11). **Sticky** in the editor, so Export and the save status stay visible with 20+ steps.
 3. `upload/Dropzone` `{ onFile; disabled? }` and `upload/EmptyState` `{ onFile }` (formats, limits, how it works, privacy line).
 4. `upload/JobProgress` `{ job: running JobState; video: VideoInfo; onCancel }` (stage list, elapsed time not announced, indeterminate bar, plus the long-video notice when `isLongVideo(video.durationSec)`; D16) and `upload/CaptureBanner` `{ done; total }` (the compact banner shown above the editor while capturing).
-5. `feedback/ErrorPanel` `{ error; onPrimary; onSecondary?; children? }` (copy from `ERROR_COPY`, `h1` heading focused on mount, no `role="alert"`; `children` is an extra detail area, e.g. Gemini's reason or "Your video is already uploaded. Retry won't upload it again."), `feedback/Banner` `{ tone: "warning" | "info"; children; action? }` (info tone = the long-video notice; no `role` of its own, announcements go through `useAnnounce`), `feedback/ConfirmDialog` `{ open; kind: "start_new" | "replace"; onResolve(ok) }` (alert-dialog).
+5. `feedback/ErrorPanel` `{ error; onPrimary; onSecondary?; children? }` (copy from `ERROR_COPY`, `h1` heading focused on mount, no `role="alert"`; `children` is an extra detail area, e.g. Gemini's reason or "Your video is already uploaded. Retry won't upload it again."), `feedback/Banner` `{ tone: "warning" | "info"; children; action? }` (info tone = the long-video notice; no `role` of its own, announcements go through `useAnnounce`), `feedback/ConfirmDialog` `{ open; kind: "start_new" | "replace"; onResolve(ok); projectTitle?; fileName? }` (alert-dialog; names the project and file). Focus returns to the opener, else to the results heading. A dropped file has no opener, so the heading is the intended target.
 6. `project/ProjectTitle` `{ value; onChange }` (a **visible** `h1` with `id={RESULTS_HEADING_ID}` and `tabIndex={-1}` showing the title, plus a "Rename" icon button that swaps in a labelled input; Enter saves, Esc cancels), `project/ExportButton` `{ onExport(): Promise<void> }` (busy state + error toast), `project/NoSteps` `{ onAddStep }`.
 7. `app/error.tsx` and `/dev/states` (every component in every state, from fixtures).
 
