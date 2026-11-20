@@ -29,7 +29,7 @@ const marker = (name: string) =>
 vi.mock("@/components/editor/StepList", () => ({ StepList: marker("StepList") }));
 vi.mock("@/components/feedback/Banner", () => ({ Banner: marker("Banner") }));
 vi.mock("@/components/feedback/ConfirmDialog", () => ({ ConfirmDialog: marker("ConfirmDialog") }));
-vi.mock("@/components/feedback/ErrorPanel", () => ({ ErrorPanel: marker("ErrorPanel"), ErrorDetail: marker("ErrorDetail") }));
+vi.mock("@/components/feedback/ErrorPanel", () => ({ ErrorPanel: marker("ErrorPanel") }));
 vi.mock("@/components/frames/FramePicker", () => ({ FramePicker: marker("FramePicker") }));
 vi.mock("@/components/project/ExportButton", () => ({ ExportButton: marker("ExportButton") }));
 vi.mock("@/components/project/NoSteps", () => ({ NoSteps: marker("NoSteps") }));
@@ -164,8 +164,8 @@ describe("Home page", () => {
   it.each([
     ["too_long", "Trim it to the part that shows the process"],
     ["undecodable", "Nothing was sent to Gemini."],
-    ["missing_api_key", "GEMINI_API_KEY=your-key-here"],
-  ] as const)("error %s → ErrorPanel carries the board's hint", (kind, text) => {
+    ["missing_api_key", "next to package.json"],
+  ] as const)("error %s → ErrorPanel carries ERROR_COPY's hint", (kind, text) => {
     rec.current = recorder({ phase: "error", error: { kind }, retryFrom: null });
     render(<Home />);
     expect(screen.getByTestId("ErrorPanel")).toHaveTextContent(text);

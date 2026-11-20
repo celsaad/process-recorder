@@ -231,10 +231,8 @@ describe("createDebouncedSaver", () => {
 
   it("a write in flight when cancel runs reports no status or error afterwards", async () => {
     let release!: (fail: boolean) => void;
-    setMock.mockImplementationOnce(
-      () => new Promise<void>((resolve, reject) => (release = (fail) => (fail ? reject(new Error("x")) : resolve()))),
-    );
-    setMock.mockImplementationOnce(
+    // Both writes below (A, then B) wait for `release`; beforeEach restores the real `set`.
+    setMock.mockImplementation(
       () => new Promise<void>((resolve, reject) => (release = (fail) => (fail ? reject(new Error("x")) : resolve()))),
     );
     const statuses: SaveStatus[] = [];

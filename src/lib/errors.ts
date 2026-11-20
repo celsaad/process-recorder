@@ -80,6 +80,8 @@ export const ERROR_COPY: Record<
   {
     title: string;
     body: (detail?: string) => string;
+    /** Optional "what to do" line under the body (Errors / StatesUpload boards). */
+    hint?: string;
     primaryAction: "choose_file" | "retry" | "export" | "none";
     retryFrom: RetryFrom | null;
   }
@@ -87,6 +89,7 @@ export const ERROR_COPY: Record<
   missing_api_key: {
     title: "The Gemini API key is missing",
     body: () => "GEMINI_API_KEY isn't set. Add it to .env.local and restart.",
+    hint: "The file goes in the project root, next to package.json.",
     primaryAction: "none",
     retryFrom: null,
   },
@@ -101,6 +104,7 @@ export const ERROR_COPY: Record<
     title: "This recording is too long",
     body: (detail) =>
       `${detail ? `This video is ${detail}.` : "This video is too long."} Recordings must be 10 minutes or less.`,
+    hint: "Trim it to the part that shows the process, or record a shorter take.",
     primaryAction: "choose_file",
     retryFrom: null,
   },
@@ -113,7 +117,8 @@ export const ERROR_COPY: Record<
   },
   undecodable: {
     title: "This video can't be played here",
-    body: () => "This video can't be played here. Re-export it as H.264 MP4.",
+    body: () => "Your browser couldn't decode it, so screenshots can't be captured from it.",
+    hint: "Re-export it as an H.264 MP4, then upload that file. Nothing was sent to Gemini.",
     primaryAction: "choose_file",
     retryFrom: null,
   },

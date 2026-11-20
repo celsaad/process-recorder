@@ -131,7 +131,7 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.75rem; /* sonner's toast radius; component radii are set in @theme */
+  --radius: 0.75rem; /* shadcn base radius; component radii are set in @theme */
   --sidebar: #FFFFFF;
   --sidebar-foreground: #15181C;
   --sidebar-primary: #1D5BD6;

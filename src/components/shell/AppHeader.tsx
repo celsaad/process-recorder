@@ -38,7 +38,7 @@ function useHeaderHeightVar(ref: RefObject<HTMLElement | null>) {
 export function AppHeader({ saveStatus, onStartNew, title, actions }: AppHeaderProps) {
   const ref = useRef<HTMLElement>(null);
   useHeaderHeightVar(ref);
-  const inEditor = title !== undefined && title !== null && title !== false;
+  const inEditor = title != null;
 
   return (
     <header

@@ -78,11 +78,18 @@ describe("ConfirmDialog", () => {
     [
       "replace",
       { projectTitle: "Create a purchase order", fileName: "Recording.mov" },
-      /^Processing Recording\.mov deletes “Create a purchase order” and its screenshots/,
+      /^Processing “Recording\.mov” deletes “Create a purchase order” and its screenshots/,
     ],
   ] as const)("%s copy names the project and file when given (%o)", (kind, names, body) => {
     render(<ConfirmDialog open kind={kind} onResolve={vi.fn()} {...names} />);
     expect(screen.getByRole("alertdialog")).toHaveAccessibleDescription(body);
+  });
+
+  it("a long unspaced file name can wrap instead of overflowing the dialog", () => {
+    const fileName = `${"a".repeat(56)}.mov`; // 60 chars, no spaces
+    render(<ConfirmDialog open kind="replace" onResolve={vi.fn()} fileName={fileName} />);
+    const body = screen.getByText(new RegExp(`Processing “${fileName.replace(".", "\\.")}”`));
+    expect(body.className).toContain("[overflow-wrap:anywhere]");
   });
 
   it("with no focused opener (e.g. a drop), focus falls back to the results heading", async () => {

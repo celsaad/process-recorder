@@ -30,7 +30,7 @@ export const CONFIRM_COPY: Record<
   replace: {
     title: "Replace current project?",
     body: ({ projectTitle, fileName }) =>
-      `${fileName ? `Processing ${fileName}` : "Processing the new recording"} deletes ${quoted(projectTitle) ?? "the current test script"} and its screenshots from this browser. Export to Word first if you want to keep it.`,
+      `${fileName ? `Processing ${quoted(fileName)}` : "Processing the new recording"} deletes ${quoted(projectTitle) ?? "the current test script"} and its screenshots from this browser. Export to Word first if you want to keep it.`,
     cancel: "Keep current project",
     confirm: "Replace",
   },
@@ -81,7 +81,7 @@ export function ConfirmDialog({ open, kind, onResolve, projectTitle, fileName }:
         className="flex max-w-[460px] flex-col gap-5 rounded-xl p-6 ring-0 shadow-[0_24px_64px_rgba(21,24,28,0.4)] data-[size=default]:max-w-[calc(100%-32px)] data-[size=default]:sm:max-w-[460px]">
         <div className="flex flex-col gap-2">
           <AlertDialogTitle className="text-xl font-semibold tracking-[-0.01em]">{copy.title}</AlertDialogTitle>
-          <AlertDialogDescription className="text-sm text-pretty text-foreground-2">
+          <AlertDialogDescription className="text-sm text-pretty [overflow-wrap:anywhere] text-foreground-2">
             {copy.body({ projectTitle, fileName })}
           </AlertDialogDescription>
         </div>
