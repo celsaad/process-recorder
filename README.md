@@ -54,6 +54,7 @@ CI (GitHub Actions) runs `pnpm check` and the E2E suite on every push and PR.
 | Doc | Read it for |
 |---|---|
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Every significant decision: context, alternatives, tradeoffs, plus the review log |
+| [docs/CODE_TOUR.md](docs/CODE_TOUR.md) | Where the logic lives: routes, Gemini integration, the orchestrator hook, lib modules, components, tests |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Request flow, API contracts, module map, data model |
 | [docs/UX.md](docs/UX.md) | Every UI state, debouncing, keyboard flow, a11y checklist |
 | [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | Build plan: shared contracts and parallel lanes for concurrent agents |
