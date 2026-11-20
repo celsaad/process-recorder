@@ -31,7 +31,8 @@ export type FramePickerProps = {
   initialSec: number;
   /** 1-based, for the dialog title ("Pick a frame for step 3"). */
   stepNumber: number;
-  stepAction?: string; // The step's action, shown as a subtitle under the dialog title when set.
+  /** The step's action, shown as a subtitle under the dialog title when set. */
+  stepAction?: string;
   onConfirm: (sec: number, shot: Blob) => void | Promise<void>;
   onCancel: () => void;
 };

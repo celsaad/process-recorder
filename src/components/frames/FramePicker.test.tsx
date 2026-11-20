@@ -266,6 +266,39 @@ describe("FramePicker", () => {
     }
   });
 
+  it("after the cap fires, a late load never seeks back to the old time", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      readyState = 0; // the frame never decodes in time
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<Harness />);
+      await user.click(screen.getByRole("button", { name: "Pick frame for step 3" }));
+      await screen.findByRole("slider");
+      const video = screen.getByLabelText(/Video frame at/);
+      let time = 19;
+      const sets: number[] = [];
+      Object.defineProperty(video, "currentTime", {
+        configurable: true,
+        get: () => time,
+        set: (v: number) => {
+          time = v;
+          sets.push(v);
+        },
+      });
+      await user.keyboard("{Enter}");
+      await act(() => vi.advanceTimersByTimeAsync(6100));
+      expect(screen.getByText("Couldn't capture this frame. Try a nearby moment, or cancel.")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "+0.1 s for step 3" })); // the user moves on to 19.1
+      expect(sets).toEqual([19.1]);
+      readyState = 4; // the load lands late
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      expect(sets).toEqual([19.1]);
+      expect(captureFromVideo).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the step's action under the title when given", async () => {
     const picker = (stepAction?: string) => (
       <LiveRegionProvider>

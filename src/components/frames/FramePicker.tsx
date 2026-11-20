@@ -60,10 +60,14 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, stepAction,
   const videoRef = useRef<HTMLVideoElement>(null);
   // False once the dialog is gone: a capture still in flight must never commit after that.
   const alive = useRef(true);
+  // The confirm in flight, if any. Aborted when its time cap fires or the dialog goes away
+  // (Cancel/Esc unmount the body), so a late `grab()` never seeks or keeps polling.
+  const confirming = useRef<AbortController | null>(null);
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
+      confirming.current?.abort();
     };
   }, []);
   const sliderWrapRef = useRef<HTMLDivElement | null>(null);
@@ -104,35 +108,50 @@ function PickerBody({ videoUrl, durationSec, initialSec, stepNumber, stepAction,
     if (!video || busy) return;
     setBusy(true);
     setFailed(false);
+    const ctrl = new AbortController();
+    confirming.current = ctrl;
+    const { signal } = ctrl;
+    const check = () => {
+      if (signal.aborted) throw new AppError("cancelled");
+    };
     const grab = async () => {
       // Let the newest seek land before drawing, or the screenshot would show an older frame.
-      await waitForFrameData(video, LOAD_TIMEOUT_MS);
+      await waitForFrameData(video, LOAD_TIMEOUT_MS, { signal });
+      check();
       // The slider's seek runs in an effect after render, so an Enter pressed right
       // after an arrow key can arrive before that seek starts. Request it here too
       // (idempotent) so the wait below always covers the time being confirmed.
       requestSeek(sec);
-      await waitForSeek(video, pendingSeek, SEEK_SETTLE_TIMEOUT_MS);
-      return captureFromVideo(video);
+      await waitForSeek(video, pendingSeek, SEEK_SETTLE_TIMEOUT_MS, signal);
+      check();
+      return captureFromVideo(video, { signal });
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new AppError("capture_failed")), CONFIRM_TIMEOUT_MS);
+      timer = setTimeout(() => {
+        // Reject first so the race reports the failure, not the abort's `cancelled`. Then stop
+        // the late grab: it must not seek back to `sec` after the user has moved on.
+        reject(new AppError("capture_failed"));
+        ctrl.abort();
+      }, CONFIRM_TIMEOUT_MS);
     });
     try {
-      // A capture that outlives the deadline is dropped: the race has already settled.
       const shot = await Promise.race([grab(), deadline]);
       clearTimeout(timer);
       if (!alive.current) return;
       await onConfirm(sec, shot);
     } catch (e) {
       clearTimeout(timer);
+      if (!alive.current) return;
       const err = toAppError(e);
       if (err.kind !== "cancelled") {
         setFailed(true);
         announce("Couldn't capture this frame. Try a nearby moment.");
       }
+    } finally {
+      if (confirming.current === ctrl) confirming.current = null;
     }
-    setBusy(false);
+    if (alive.current) setBusy(false);
   };
 
   const onSliderKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -299,21 +318,27 @@ function StepButton({
   );
 }
 
-/** Resolves once the video has no seek in flight (and no newer one queued). */
-function waitForSeek(video: HTMLVideoElement, pending: { current: number | null }, timeoutMs: number): Promise<void> {
-  if (!video.seeking && pending.current === null) return Promise.resolve();
+/** Resolves once the video has no seek in flight (and no newer one queued), or when `signal` aborts. */
+function waitForSeek(
+  video: HTMLVideoElement,
+  pending: { current: number | null },
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted || (!video.seeking && pending.current === null)) return Promise.resolve();
   return new Promise((resolve) => {
-    const done = () => {
-      if (video.seeking || pending.current !== null) return;
+    const finish = () => {
       clearTimeout(timer);
       video.removeEventListener("seeked", done);
+      signal.removeEventListener("abort", finish);
       resolve();
     };
+    const done = () => {
+      if (!video.seeking && pending.current === null) finish();
+    };
     // Give up waiting and capture whatever is shown; captureFromVideo has its own seek timeout.
-    const timer = setTimeout(() => {
-      video.removeEventListener("seeked", done);
-      resolve();
-    }, timeoutMs);
+    const timer = setTimeout(finish, timeoutMs);
     video.addEventListener("seeked", done);
+    signal.addEventListener("abort", finish);
   });
 }

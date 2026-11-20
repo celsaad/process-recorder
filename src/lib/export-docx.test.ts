@@ -76,7 +76,7 @@ describe("buildDocx", () => {
     const rows = xml.split(/<w:tr[\s>]/).slice(1);
     expect(rows).toHaveLength(steps.length + 1);
     expect(rows[0]).toContain("<w:tblHeader");
-    for (const header of ["Action", "Description", "Expected result", "Screenshot"]) expect(rows[0]).toContain(`>${header}<`);
+    for (const header of ["#", "Action","Description", "Expected result", "Screenshot"]) expect(rows[0]).toContain(`>${header}<`);
     const xmlText = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/'/g, "&apos;").replace(/"/g, "&quot;");
     rows.slice(1).forEach((row, i) => expect(row).toContain(`>${xmlText(steps[i].action)}<`));
 
