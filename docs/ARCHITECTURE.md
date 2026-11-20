@@ -25,7 +25,7 @@ sequenceDiagram
     AN->>G: files.get → generateContent(video + prompt, responseSchema)
     AN->>AN: finishReason check, zod validate (1 retry), sort/de-dupe
     AN-->>B: JSON { processTitle, steps } | { error }
-    B->>B: Seek <video> to each timestamp → canvas → JPEG
+    B->>B: Seek <video> to each timestamp → canvas → WebP (JPEG fallback)
     B->>B: Persist to IndexedDB (video, shots, project JSON)
     U->>B: Edit, reorder, re-pick frames, adjust highlight
     B->>B: Export .docx (client-side)
@@ -117,5 +117,5 @@ type Step = {
 type Rect = { x: number; y: number; w: number; h: number };
 
 // IndexedDB key "video"         → Blob (written once)
-// IndexedDB key "shot:<stepId>" → JPEG Blob (written on capture / re-pick)
+// IndexedDB key "shot:<stepId>" → WebP (or JPEG fallback) Blob (written on capture / re-pick)
 ```

@@ -43,7 +43,7 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 
 **Context.** Gemini returns timestamps, not images. Someone has to turn timestamps into frames.
 
-**Decision.** The browser already holds the video `File`. After analysis we load it into an off-screen `<video>` (object URL, so the canvas is not tainted), seek to each timestamp, and draw the frame to a `<canvas>` → **JPEG (quality ≈ 0.9, max 1920 px wide)**.
+**Decision.** The browser already holds the video `File`. After analysis we load it into an off-screen `<video>` (object URL, so the canvas is not tainted), seek to each timestamp, and draw the frame to a `<canvas>` → **WebP (max 1920 px wide)**, falling back to JPEG.
 
 **Alternatives.**
 - *ffmpeg on the server.* Requires a native binary, keeps the video on disk longer, and every "re-pick" would be a server round trip.
@@ -52,7 +52,18 @@ The plan was reviewed by an independent AI reviewer before any code was written.
 - Zero server video processing; nothing to install.
 - **Re-picking a screenshot from another moment (feature 2) reuses the same seek-and-capture function** behind a scrubber, with instant feedback.
 
-**Why JPEG with a size cap.** Native Retina PNGs are 2–5 MB each. Twenty of them would make a 50 MB+ `.docx` and bloat IndexedDB. JPEG at 0.9 keeps UI text readable at a fraction of the size.
+**Image format: WebP for storage, JPEG for export.**
+
+| Format | Verdict | Reason |
+|---|---|---|
+| PNG | No | Native Retina PNGs are 2–5 MB each. Twenty would make a 50 MB+ `.docx` and bloat IndexedDB |
+| JPEG | Fallback + export | Universal, but smears text edges and thin UI lines, which is its worst case |
+| **WebP** | **Stored format** | About 25–35% smaller than JPEG at similar quality, and noticeably cleaner text. `canvas.toBlob("image/webp")` works in Chrome and Firefox |
+| AVIF | No | Browsers decode it but none encode it from a canvas. Would need a WASM encoder: bundle weight and seconds per frame for a small gain over WebP |
+
+- **Capture:** `toBlob("image/webp", 0.9)`, then **check `blob.type`**. Browsers that can't encode WebP silently return PNG (possibly Safari; unconfirmed). In that case we re-encode as JPEG 0.9.
+- **Export:** the `docx` library only embeds PNG/JPEG/GIF/BMP/SVG, and client templates get opened in Word versions, Google Docs and LibreOffice that may not handle WebP. Export already redraws each screenshot on a canvas to burn in the highlight (D9, D11), so it outputs **JPEG 0.92** at no extra cost.
+- **To test in the spike:** lossless WebP. UI screenshots are mostly flat colour, so lossless may come out close in size to lossy with perfect text. Compare both on a frame from the example videos and keep the smaller one that reads cleanly.
 
 **Seek details (where browser capture usually breaks).**
 - Captures run **sequentially** on one element. Parallel seeks race.
@@ -166,7 +177,7 @@ Steps live in a separate reducer (`add | update | remove | restore | move | setS
 | Key | Content | Written when |
 |---|---|---|
 | `video` | Original video `Blob` | Once, after validation |
-| `shot:<stepId>` | Screenshot JPEG `Blob` | On capture / re-pick |
+| `shot:<stepId>` | Screenshot `Blob` (WebP, JPEG fallback) | On capture / re-pick |
 | `project` | JSON: title, steps (text, timestamp, highlight), Gemini `fileName` + `uploadedAt` | **Debounced 500 ms** after the last edit, plus a best-effort flush on `pagehide` |
 
 A "Saving… / Saved" indicator sits in the header.
@@ -196,7 +207,7 @@ A "Saving… / Saved" indicator sits in the header.
 - Keeping the original screenshot means a highlight can always be edited or removed.
 - A model-suggested box is the "creative" step: most of the time the user only nudges it.
 
-**Known risk.** The box refers to the frame Gemini sampled, which may differ slightly from the frame we capture at the parsed timestamp. Box accuracy on video frames is also not documented. That is why the box is a suggestion, and why it is *hidden* after the user re-picks a different moment. Fallback if accuracy is poor: send the captured JPEG back to Gemini as an image and ask for the box on that exact frame.
+**Known risk.** The box refers to the frame Gemini sampled, which may differ slightly from the frame we capture at the parsed timestamp. Box accuracy on video frames is also not documented. That is why the box is a suggestion, and why it is *hidden* after the user re-picks a different moment. Fallback if accuracy is poor: send the captured frame back to Gemini as an image and ask for the box on that exact frame.
 
 **Accessibility.** The rectangle is a focusable element named "Highlight on step 3 screenshot". Arrows move it, `Shift` + arrows move it 10×, `Alt` + arrows resize it, and Delete removes it. Explicit buttons ("Remove highlight", "Add highlight") give a non-drag alternative.
 
@@ -315,5 +326,5 @@ An independent AI reviewer (a separate model with no stake in the plan) critique
 | D4 security | Client sent `fileUri` | Client sends `fileName`; the server resolves it; server-side size/type checks | Don't let the client choose the URI; client checks can be bypassed |
 | D10 | 12 kinds | Added `missing_api_key`, `file_expired`, `gemini_blocked`, `storage_full`, poll timeout | Gaps an interviewer would probe |
 | D13 | `role="alert"` + focus move; 5 s undo toast | Focus move only; undo stays until dismissed | Double announcement; WCAG 2.2.1 |
-| D3 | Native PNG | JPEG 0.9, max 1920 px | 2–5 MB per PNG would bloat the docx and storage |
+| D3 | Native PNG | WebP stored (JPEG fallback), JPEG on export, max 1920 px | 2–5 MB per PNG would bloat the docx and storage. WebP keeps text sharper than JPEG. AVIF can't be encoded from a canvas. docx needs JPEG/PNG |
 | D15 | Markdown, print, dnd-kit, auto-backoff | Cut | Fit 3 hours |
